@@ -123,4 +123,4 @@ See `.env.example` for the full list.
 
 ## License
 
-MIT
+[MIT](LICENSE)
