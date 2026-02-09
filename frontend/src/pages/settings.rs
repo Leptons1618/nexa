@@ -3,8 +3,7 @@
 use dioxus::prelude::*;
 
 use crate::api;
-use crate::components::header::Header;
-use crate::components::icons::{IconCpu, IconDatabase, IconSettings as IconSettingsIcon};
+use crate::components::icons::{IconCpu, IconDatabase, IconSettings as IconSettingsIcon, IconCheckCircle, IconAlertCircle};
 
 #[component]
 pub fn Settings() -> Element {
@@ -14,20 +13,47 @@ pub fn Settings() -> Element {
     let ollama_models = use_resource(|| async { api::fetch_ollama_models().await });
 
     rsx! {
-        Header { title: "Settings".to_string() }
-        div { class: "page-content",
-            h2 { class: "page-title",
-                IconSettingsIcon { size: 24 }
-                "Configuration"
+        div { class: "settings-page",
+            div { class: "settings-header",
+                h1 { class: "settings-title",
+                    IconSettingsIcon { size: 24 }
+                    "Settings"
+                }
+                // Status indicators
+                div { class: "settings-status",
+                    match &*health.read() {
+                        Some(Ok(h)) if h.status == "ok" => rsx! {
+                            span { class: "status-pill status-pill--ok",
+                                IconCheckCircle { size: 14 }
+                                "System Healthy"
+                            }
+                        },
+                        Some(Ok(_)) => rsx! {
+                            span { class: "status-pill status-pill--warn",
+                                IconAlertCircle { size: 14 }
+                                "Degraded"
+                            }
+                        },
+                        Some(Err(_)) => rsx! {
+                            span { class: "status-pill status-pill--error",
+                                IconAlertCircle { size: 14 }
+                                "Unreachable"
+                            }
+                        },
+                        None => rsx! {
+                            span { class: "status-pill status-pill--loading", "Checking..." }
+                        },
+                    }
+                }
             }
 
             div { class: "settings-grid",
                 // LLM card
                 div { class: "setting-card",
-                    h3 {
-                        IconCpu { size: 16 }
-                        "LLM Provider"
+                    div { class: "setting-card-icon setting-card-icon--blue",
+                        IconCpu { size: 20 }
                     }
+                    h3 { "LLM Provider" }
                     match &*config.read() {
                         Some(Ok(cfg)) => rsx! {
                             div { class: "setting-row",
@@ -40,25 +66,26 @@ pub fn Settings() -> Element {
                             }
                         },
                         Some(Err(e)) => rsx! {
-                            p { class: "form-hint", "Failed to load: {e}" }
+                            p { class: "setting-error", "Failed to load: {e}" }
                         },
                         None => rsx! {
-                            p { class: "form-hint", "Loading..." }
+                            div { class: "setting-skeleton" }
+                            div { class: "setting-skeleton" }
                         },
                     }
                 }
 
                 // Ollama status card
                 div { class: "setting-card",
-                    h3 {
-                        IconCpu { size: 16 }
-                        "Ollama Server"
+                    div { class: "setting-card-icon setting-card-icon--green",
+                        IconCpu { size: 20 }
                     }
+                    h3 { "Ollama Server" }
                     match &*ollama_status.read() {
                         Some(Ok(st)) => rsx! {
                             div { class: "setting-row",
                                 span { class: "label", "Running" }
-                                span { class: "value",
+                                span { class: if st.running { "value value--ok" } else { "value value--error" },
                                     if st.running {
                                         "Yes"
                                     } else {
@@ -68,7 +95,7 @@ pub fn Settings() -> Element {
                             }
                             div { class: "setting-row",
                                 span { class: "label", "Base URL" }
-                                span { class: "value", "{st.base_url}" }
+                                span { class: "value value--mono", "{st.base_url}" }
                             }
                             div { class: "setting-row",
                                 span { class: "label", "Active Model" }
@@ -80,20 +107,21 @@ pub fn Settings() -> Element {
                             }
                         },
                         Some(Err(e)) => rsx! {
-                            p { class: "form-hint", "Ollama not available: {e}" }
+                            p { class: "setting-error", "Ollama not available: {e}" }
                         },
                         None => rsx! {
-                            p { class: "form-hint", "Loading..." }
+                            div { class: "setting-skeleton" }
+                            div { class: "setting-skeleton" }
                         },
                     }
                 }
 
                 // Vector store card
                 div { class: "setting-card",
-                    h3 {
-                        IconDatabase { size: 16 }
-                        "Vector Store"
+                    div { class: "setting-card-icon setting-card-icon--purple",
+                        IconDatabase { size: 20 }
                     }
+                    h3 { "Vector Store" }
                     match &*config.read() {
                         Some(Ok(cfg)) => rsx! {
                             div { class: "setting-row",
@@ -102,33 +130,33 @@ pub fn Settings() -> Element {
                             }
                             div { class: "setting-row",
                                 span { class: "label", "Embedding Model" }
-                                span { class: "value", "{cfg.embedding_model}" }
+                                span { class: "value value--mono", "{cfg.embedding_model}" }
                             }
                         },
                         Some(Err(e)) => rsx! {
-                            p { class: "form-hint", "Failed to load: {e}" }
+                            p { class: "setting-error", "Failed to load: {e}" }
                         },
                         None => rsx! {
-                            p { class: "form-hint", "Loading..." }
+                            div { class: "setting-skeleton" }
                         },
                     }
                 }
 
                 // Health card
                 div { class: "setting-card",
-                    h3 {
-                        IconCpu { size: 16 }
-                        "Service Health"
+                    div { class: "setting-card-icon setting-card-icon--amber",
+                        IconCpu { size: 20 }
                     }
+                    h3 { "Service Health" }
                     match &*health.read() {
                         Some(Ok(h)) => rsx! {
                             div { class: "setting-row",
                                 span { class: "label", "Status" }
-                                span { class: "value", "{h.status}" }
+                                span { class: if h.status == "ok" { "value value--ok" } else { "value value--error" }, "{h.status}" }
                             }
                             div { class: "setting-row",
                                 span { class: "label", "LLM Connected" }
-                                span { class: "value",
+                                span { class: if h.llm_connected { "value value--ok" } else { "value value--error" },
                                     if h.llm_connected {
                                         "Yes"
                                     } else {
@@ -136,44 +164,53 @@ pub fn Settings() -> Element {
                                     }
                                 }
                             }
-                            div { class: "setting-row",
-                                span { class: "label", "Detail" }
-                                span { class: "value", "{h.detail}" }
+                            if !h.detail.is_empty() {
+                                div { class: "setting-row",
+                                    span { class: "label", "Detail" }
+                                    span { class: "value", "{h.detail}" }
+                                }
                             }
                         },
                         Some(Err(e)) => rsx! {
-                            p { class: "form-hint", "Failed to load: {e}" }
+                            p { class: "setting-error", "Failed to load: {e}" }
                         },
                         None => rsx! {
-                            p { class: "form-hint", "Loading..." }
+                            div { class: "setting-skeleton" }
                         },
                     }
                 }
 
-                // Ollama models card
-                div { class: "setting-card",
-                    h3 {
-                        IconDatabase { size: 16 }
-                        "Available Models"
+                // Ollama models card (wider)
+                div { class: "setting-card setting-card--wide",
+                    div { class: "setting-card-icon setting-card-icon--blue",
+                        IconDatabase { size: 20 }
                     }
+                    h3 { "Available Models" }
                     match &*ollama_models.read() {
                         Some(Ok(m)) => rsx! {
                             if m.models.is_empty() {
-                                p { class: "form-hint", "No models found." }
+                                p { class: "setting-empty", "No models found on Ollama server." }
                             } else {
-                                for model in m.models.iter() {
-                                    div { class: "setting-row",
-                                        span { class: "label", "{model.name}" }
-                                        span { class: "value", {format_model_size(model.size)} }
+                                div { class: "models-table",
+                                    div { class: "models-table-header",
+                                        span { "Name" }
+                                        span { "Size" }
+                                    }
+                                    for model in m.models.iter() {
+                                        div { class: "models-table-row",
+                                            span { class: "model-name", "{model.name}" }
+                                            span { class: "model-size", {format_model_size(model.size)} }
+                                        }
                                     }
                                 }
                             }
                         },
                         Some(Err(e)) => rsx! {
-                            p { class: "form-hint", "Could not list models: {e}" }
+                            p { class: "setting-error", "Could not list models: {e}" }
                         },
                         None => rsx! {
-                            p { class: "form-hint", "Loading..." }
+                            div { class: "setting-skeleton" }
+                            div { class: "setting-skeleton" }
                         },
                     }
                 }

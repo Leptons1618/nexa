@@ -431,3 +431,267 @@ pub fn IconTag(size: Option<u32>) -> Element {
         }
     }
 }
+
+#[component]
+pub fn IconTrash(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            polyline { points: "3 6 5 6 21 6" }
+            path { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" }
+            line {
+                x1: "10",
+                y1: "11",
+                x2: "10",
+                y2: "17",
+            }
+            line {
+                x1: "14",
+                y1: "11",
+                x2: "14",
+                y2: "17",
+            }
+        }
+    }
+}
+
+#[component]
+pub fn IconChevronUp(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            polyline { points: "18 15 12 9 6 15" }
+        }
+    }
+}
+
+#[component]
+pub fn IconChevronDown(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            polyline { points: "6 9 12 15 18 9" }
+        }
+    }
+}
+
+#[component]
+pub fn IconCopy(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            rect {
+                x: "9",
+                y: "9",
+                width: "13",
+                height: "13",
+                rx: "2",
+            }
+            path { d: "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" }
+        }
+    }
+}
+
+#[component]
+pub fn IconExternalLink(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            path { d: "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" }
+            polyline { points: "15 3 21 3 21 9" }
+            line {
+                x1: "10",
+                y1: "14",
+                x2: "21",
+                y2: "3",
+            }
+        }
+    }
+}
+
+#[component]
+pub fn IconX(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            line {
+                x1: "18",
+                y1: "6",
+                x2: "6",
+                y2: "18",
+            }
+            line {
+                x1: "6",
+                y1: "6",
+                x2: "18",
+                y2: "18",
+            }
+        }
+    }
+}
+
+#[component]
+pub fn IconFilePdf(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            path { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }
+            polyline { points: "14 2 14 8 20 8" }
+            path { d: "M10 12l-2 4h4l-2 4" }
+        }
+    }
+}
+
+#[component]
+pub fn IconFileCode(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            path { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }
+            polyline { points: "14 2 14 8 20 8" }
+            path { d: "m10 13-2 2 2 2" }
+            path { d: "m14 17 2-2-2-2" }
+        }
+    }
+}
+
+#[component]
+pub fn IconPanelLeft(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            rect {
+                x: "3",
+                y: "3",
+                width: "18",
+                height: "18",
+                rx: "2",
+            }
+            line {
+                x1: "9",
+                y1: "3",
+                x2: "9",
+                y2: "21",
+            }
+        }
+    }
+}
+
+#[component]
+pub fn IconChevronLeft(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            polyline { points: "15 18 9 12 15 6" }
+        }
+    }
+}
+
+#[component]
+pub fn IconChevronRight(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            polyline { points: "9 18 15 12 9 6" }
+        }
+    }
+}

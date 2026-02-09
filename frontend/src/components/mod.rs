@@ -1,6 +1,11 @@
 pub mod chat_bubble;
+pub mod chat_history;
 pub mod chat_input;
+pub mod doc_context;
 pub mod header;
 pub mod icons;
+pub mod model_selector;
+pub mod rich_content;
 pub mod sidebar;
 pub mod status_badge;
+pub mod upload_modal;

@@ -1,23 +1,48 @@
-//! Sidebar navigation component.
+//! Sidebar navigation component with collapse support.
 
 use dioxus::prelude::*;
 
-use crate::components::icons::{IconFileText, IconMessageSquare, IconSettings};
+use crate::components::icons::{IconChevronLeft, IconChevronRight, IconMessageSquare, IconSettings};
+use crate::components::model_selector::ModelSelector;
+use crate::components::chat_history::ChatHistory;
+use crate::models::ChatSession;
 use crate::Route;
 
 #[component]
-pub fn Sidebar() -> Element {
+pub fn Sidebar(
+    selected_model: Option<Signal<String>>,
+    sessions: Option<Signal<Vec<ChatSession>>>,
+    active_session_id: Option<Signal<String>>,
+    on_select_session: Option<EventHandler<String>>,
+    on_new_chat: Option<EventHandler<()>>,
+    on_delete_session: Option<EventHandler<String>>,
+) -> Element {
     let route: Route = use_route();
+    let mut collapsed = use_signal(|| false);
+    let is_collapsed = *collapsed.read();
 
     let chat_active = matches!(route, Route::Chat {});
-    let docs_active = matches!(route, Route::Documents {});
     let settings_active = matches!(route, Route::Settings {});
 
     rsx! {
-        aside { class: "sidebar",
+        aside { class: if is_collapsed { "sidebar sidebar--collapsed" } else { "sidebar" },
+
             div { class: "sidebar-brand",
                 IconCpuBrand {}
-                span { "Nexa Support" }
+                if !is_collapsed {
+                    span { "Nexa Support" }
+                }
+            }
+
+            button {
+                class: "sidebar-toggle",
+                title: if is_collapsed { "Expand sidebar" } else { "Collapse sidebar" },
+                onclick: move |_| collapsed.set(!is_collapsed),
+                if is_collapsed {
+                    IconChevronRight { size: 16 }
+                } else {
+                    IconChevronLeft { size: 16 }
+                }
             }
 
             nav { class: "sidebar-nav",
@@ -25,23 +50,55 @@ pub fn Sidebar() -> Element {
                     to: Route::Chat {},
                     class: if chat_active { "nav-link active" } else { "nav-link" },
                     IconMessageSquare { size: 18 }
-                    span { "Chat" }
-                }
-                Link {
-                    to: Route::Documents {},
-                    class: if docs_active { "nav-link active" } else { "nav-link" },
-                    IconFileText { size: 18 }
-                    span { "Documents" }
+                    if !is_collapsed {
+                        span { "Chat" }
+                    }
                 }
                 Link {
                     to: Route::Settings {},
                     class: if settings_active { "nav-link active" } else { "nav-link" },
                     IconSettings { size: 18 }
-                    span { "Settings" }
+                    if !is_collapsed {
+                        span { "Settings" }
+                    }
                 }
             }
 
-            div { class: "sidebar-footer", "v2.0.0" }
+            // Model selector (only show when expanded and on chat page)
+            if !is_collapsed {
+                if let Some(model) = selected_model {
+                    div { class: "sidebar-section",
+                        div { class: "sidebar-section-title", "Model" }
+                        ModelSelector { selected_model: model }
+                    }
+                }
+
+                // Chat history (only show on chat page)
+                if let (Some(sess), Some(active_id), Some(on_sel), Some(on_new), Some(on_del)) = (
+                    sessions,
+                    active_session_id,
+                    on_select_session,
+                    on_new_chat,
+                    on_delete_session,
+                )
+                {
+                    div { class: "sidebar-section sidebar-section--history",
+                        ChatHistory {
+                            sessions: sess,
+                            active_session_id: active_id,
+                            on_select: on_sel,
+                            on_new,
+                            on_delete: on_del,
+                        }
+                    }
+                }
+            }
+
+            div { class: "sidebar-footer",
+                if !is_collapsed {
+                    "v2.0.0"
+                }
+            }
         }
     }
 }

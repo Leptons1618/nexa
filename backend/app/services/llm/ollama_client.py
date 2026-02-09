@@ -43,12 +43,15 @@ class OllamaClient(LLMClient):
         use_chat_api: bool = True,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.model = model
         self.temperature = temperature
         self.top_p = top_p
         self.max_tokens = max_tokens
         self.use_chat_api = use_chat_api
         self._client = httpx.Client(timeout=120.0)
+        
+        # Auto-detect available model if configured one doesn't exist
+        self.model = self._validate_or_select_model(model)
+        
         logger.info(
             "OllamaClient initialised: url=%s model=%s chat_api=%s",
             self.base_url,
@@ -77,6 +80,34 @@ class OllamaClient(LLMClient):
             return False
 
     # ── Ollama-specific helpers ─────────────────────────
+
+    def _validate_or_select_model(self, requested_model: str) -> str:
+        """Validate the requested model exists, or auto-select first available."""
+        try:
+            models = self.list_models()
+            if not models:
+                logger.warning("No models found on Ollama server, using requested model: %s", requested_model)
+                return requested_model
+            
+            model_names = [m.get("name", "") for m in models]
+            
+            # Check if requested model exists
+            if requested_model in model_names:
+                logger.info("Using requested model: %s", requested_model)
+                return requested_model
+            
+            # Model doesn't exist, use first available
+            first_model = model_names[0] if model_names else requested_model
+            logger.warning(
+                "Requested model '%s' not found. Available models: %s. Auto-selecting: %s",
+                requested_model,
+                model_names,
+                first_model,
+            )
+            return first_model
+        except Exception:
+            logger.warning("Failed to validate model, using requested model: %s", requested_model, exc_info=True)
+            return requested_model
 
     def list_models(self) -> List[Dict[str, Any]]:
         """Return the list of models available on the Ollama server.
@@ -152,3 +183,72 @@ class OllamaClient(LLMClient):
         response.raise_for_status()
         data = response.json()
         return data.get("response", "").strip()
+
+    # ── Streaming support ───────────────────────────────
+
+    def generate_stream(self, prompt: str, system_prompt: str = ""):
+        """Yield each token/chunk from the Ollama streaming response."""
+        import json as _json
+        if self.use_chat_api:
+            yield from self._chat_stream(prompt, system_prompt)
+        else:
+            yield from self._generate_stream(prompt, system_prompt)
+
+    def _chat_stream(self, prompt: str, system_prompt: str = ""):
+        import json as _json
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+            "options": self._options(),
+        }
+
+        with self._client.stream(
+            "POST", f"{self.base_url}/api/chat", json=payload, timeout=120.0
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                try:
+                    data = _json.loads(line)
+                    chunk = data.get("message", {}).get("content", "")
+                    if chunk:
+                        yield chunk
+                    if data.get("done"):
+                        break
+                except _json.JSONDecodeError:
+                    continue
+
+    def _generate_stream(self, prompt: str, system_prompt: str = ""):
+        import json as _json
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": True,
+            "options": self._options(),
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+
+        with self._client.stream(
+            "POST", f"{self.base_url}/api/generate", json=payload, timeout=120.0
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                try:
+                    data = _json.loads(line)
+                    chunk = data.get("response", "")
+                    if chunk:
+                        yield chunk
+                    if data.get("done"):
+                        break
+                except _json.JSONDecodeError:
+                    continue

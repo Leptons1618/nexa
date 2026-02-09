@@ -4,12 +4,18 @@ import pytest
 
 
 class TestRoot:
-    def test_root_returns_message(self, client):
+    def test_root_returns_ok(self, client):
         resp = client.get("/")
         assert resp.status_code == 200
-        body = resp.json()
-        assert "Nexa Support" in body["message"]
-        assert "version" in body
+        # May return JSON (no static dir) or HTML (with static dir)
+        ct = resp.headers.get("content-type", "")
+        if "application/json" in ct:
+            body = resp.json()
+            assert "Nexa Support" in body["message"]
+            assert "version" in body
+        else:
+            # Static frontend served — HTML response is fine
+            assert len(resp.content) > 0
 
 
 class TestHealth:

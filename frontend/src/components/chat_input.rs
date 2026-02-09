@@ -1,13 +1,18 @@
-//! Chat input bar with send button.
+//! Chat input bar with send button, documents indicator, and upload button.
 
 use dioxus::prelude::*;
 
-use crate::components::icons::IconSend;
+use crate::components::icons::{IconFileText, IconSend, IconUpload};
 
 #[component]
 pub fn ChatInput(
     on_send: EventHandler<String>,
     disabled: bool,
+    show_upload: Option<Signal<bool>>,
+    /// Number of uploaded docs in current session (shows indicator badge).
+    doc_count: Option<usize>,
+    /// Callback when docs button is clicked (toggle docs flyout).
+    on_toggle_docs: Option<EventHandler<()>>,
 ) -> Element {
     let mut input_text = use_signal(|| String::new());
 
@@ -29,9 +34,39 @@ pub fn ChatInput(
         }
     };
 
+    let count = doc_count.unwrap_or(0);
+
     rsx! {
         div { class: "chat-input-area",
             div { class: "chat-input-wrap",
+                // Documents indicator button
+                if let Some(on_docs) = on_toggle_docs {
+                    button {
+                        class: if count > 0 { "btn-docs btn-docs--has-files" } else { "btn-docs" },
+                        title: if count > 0 { "View uploaded documents" } else { "Upload documents" },
+                        onclick: move |_| {
+                            if count > 0 {
+                                on_docs.call(());
+                            } else if let Some(mut upload) = show_upload {
+                                upload.set(true);
+                            }
+                        },
+                        IconFileText { size: 16 }
+                        if count > 0 {
+                            span { class: "btn-docs-badge", "{count}" }
+                        }
+                    }
+                }
+
+                // // Upload button
+                // if let Some(mut upload) = show_upload {
+                //     button {
+                //         class: "btn-upload",
+                //         onclick: move |_| upload.set(true),
+                //         title: "Upload Documents",
+                //         IconUpload { size: 16 }
+                //     }
+                // }
                 input {
                     class: "chat-input",
                     r#type: "text",

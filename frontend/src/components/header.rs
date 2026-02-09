@@ -6,7 +6,7 @@ use crate::api;
 use crate::components::status_badge::StatusBadge;
 
 #[component]
-pub fn Header(title: String) -> Element {
+pub fn Header(title: String, children: Option<Element>) -> Element {
     let health = use_resource(|| async { api::fetch_health().await });
 
     let (status, connected) = match &*health.read() {
@@ -17,7 +17,12 @@ pub fn Header(title: String) -> Element {
 
     rsx! {
         header { class: "header",
-            h1 { class: "header-title", "{title}" }
+            div { class: "header-left",
+                h1 { class: "header-title", "{title}" }
+                if let Some(child) = children {
+                    {child}
+                }
+            }
             StatusBadge { status, connected }
         }
     }

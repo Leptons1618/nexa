@@ -70,3 +70,41 @@ class RAGPipeline:
         user_prompt = self._build_user_prompt(query, contexts)
         answer = self.llm.generate(user_prompt, system_prompt=self.system_prompt)
         return answer, sources
+
+    def generate_stream(self, query: str):
+        """Run retrieval then stream generation tokens.
+
+        Yields ``("sources", sources_list)`` first, then
+        ``("token", chunk_str)`` for each token, and finally
+        ``("done", "")`` when the stream has finished.
+        """
+        hits = self._retrieve(query)
+        if not hits:
+            yield ("sources", [])
+            yield ("token", _REFUSAL)
+            yield ("done", "")
+            return
+
+        contexts = [h[0] for h in hits]
+        sources = list({h[2].get("document_name", "unknown") for h in hits})
+
+        # Build source context snippets for hover previews
+        source_contexts = []
+        for text, score, meta in hits:
+            source_contexts.append({
+                "document": meta.get("document_name", "unknown"),
+                "chunk_id": meta.get("chunk_id", ""),
+                "text": text[:500],
+                "score": round(score, 3),
+            })
+
+        yield ("sources", sources)
+        yield ("contexts", source_contexts)
+
+        user_prompt = self._build_user_prompt(query, contexts)
+        for chunk in self.llm.generate_stream(
+            user_prompt, system_prompt=self.system_prompt
+        ):
+            yield ("token", chunk)
+
+        yield ("done", "")

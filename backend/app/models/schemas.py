@@ -64,8 +64,28 @@ class OllamaStatusResponse(BaseModel):
     models_available: int = 0
 
 
+class SwitchModelRequest(BaseModel):
+    model: str = Field(..., min_length=1, description="Ollama model name to switch to")
+
+
+class SwitchModelResponse(BaseModel):
+    previous_model: str
+    current_model: str
+
+
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class UploadedFileInfo(BaseModel):
+    original_name: str
+    saved_path: str
+    size: int
+
+
+class UploadResponse(BaseModel):
+    files: List[UploadedFileInfo]
+    chunks_indexed: int
 
 
 # ── Domain ──────────────────────────────────────────────
@@ -75,3 +95,41 @@ class DocumentChunk(BaseModel):
     id: str
     text: str
     metadata: dict
+
+
+# ── Chat History ────────────────────────────────────────
+
+
+class HistoryMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    text: str
+    sources: List[str] = []
+
+
+class SessionCreate(BaseModel):
+    id: str
+    title: str
+    messages: List[HistoryMessage] = []
+    documents: List[str] = []
+
+
+class SessionSummary(BaseModel):
+    id: str
+    title: str
+    message_count: int = 0
+    document_count: int = 0
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class SessionDetail(BaseModel):
+    id: str
+    title: str
+    messages: List[HistoryMessage] = []
+    documents: List[str] = []
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class SessionListResponse(BaseModel):
+    sessions: List[SessionSummary]

@@ -1400,11 +1400,17 @@ name = "nexa-frontend"
 version = "0.1.0"
 dependencies = [
  "dioxus",
+ "futures-channel",
+ "js-sys",
  "log",
  "reqwest",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

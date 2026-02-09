@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Generator
 
 
 class LLMClient(ABC):
@@ -12,6 +13,10 @@ class LLMClient(ABC):
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         """Generate a completion from *prompt* (with optional system prompt)."""
         ...
+
+    def generate_stream(self, prompt: str, system_prompt: str = "") -> Generator[str, None, None]:
+        """Stream tokens one chunk at a time.  Default falls back to generate()."""
+        yield self.generate(prompt, system_prompt)
 
     @abstractmethod
     def health_check(self) -> bool:

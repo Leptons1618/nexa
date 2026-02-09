@@ -2,12 +2,14 @@
 
 use crate::models::{
     ChatRequest, ChatResponse, ConfigResponse, HealthResponse, IngestRequest, IngestResponse,
-    OllamaModelsResponse, OllamaStatusResponse,
+    OllamaModelsResponse, OllamaStatusResponse, SessionDetailResponse, SessionListResponse,
+    SourceContext, SwitchModelRequest, SwitchModelResponse, UploadResponse,
 };
 
 const BASE: &str = "http://localhost:8000/api";
 
 /// Send a chat message and return the response.
+#[allow(dead_code)]
 pub async fn send_chat(message: &str) -> Result<ChatResponse, String> {
     let client = reqwest::Client::new();
     let body = ChatRequest {
@@ -28,6 +30,144 @@ pub async fn send_chat(message: &str) -> Result<ChatResponse, String> {
     resp.json::<ChatResponse>()
         .await
         .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// SSE streaming event from `/api/chat/stream`.
+#[derive(Clone, Debug)]
+pub enum StreamEvent {
+    Sources(Vec<String>),
+    Contexts(Vec<SourceContext>),
+    Token(String),
+    Done,
+    Error(String),
+}
+
+/// Stream chat tokens via SSE. Calls the callback with each event.
+/// Returns when the stream finishes or errors.
+pub async fn stream_chat(
+    message: &str,
+    mut on_event: impl FnMut(StreamEvent),
+) -> Result<(), String> {
+    use wasm_bindgen::JsCast;
+    use web_sys::{Request, RequestInit, Response};
+
+    let body = serde_json::json!({ "message": message });
+    let body_str = body.to_string();
+
+    let opts = RequestInit::new();
+    opts.set_method("POST");
+    opts.set_body(&wasm_bindgen::JsValue::from_str(&body_str));
+
+    let request = Request::new_with_str_and_init(&format!("{BASE}/chat/stream"), &opts)
+        .map_err(|e| format!("Request creation failed: {:?}", e))?;
+    request
+        .headers()
+        .set("Content-Type", "application/json")
+        .map_err(|e| format!("Header set failed: {:?}", e))?;
+
+    let window = web_sys::window().ok_or("No window")?;
+    let resp_value = wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| format!("Fetch failed: {:?}", e))?;
+
+    let resp: Response = resp_value
+        .dyn_into()
+        .map_err(|_| "Response cast failed".to_string())?;
+
+    if !resp.ok() {
+        let text = wasm_bindgen_futures::JsFuture::from(
+            resp.text().map_err(|_| "Failed to read error body".to_string())?,
+        )
+        .await
+        .map_err(|_| "Failed to await error body".to_string())?;
+        let body = text.as_string().unwrap_or_default();
+        return Err(format!("Server error ({}): {}", resp.status(), body));
+    }
+
+    // Read SSE stream via ReadableStream
+    let body_stream = resp.body().ok_or("No response body")?;
+    let reader = body_stream
+        .get_reader()
+        .dyn_into::<web_sys::ReadableStreamDefaultReader>()
+        .map_err(|_| "Failed to get reader".to_string())?;
+
+    let mut buffer = String::new();
+
+    loop {
+        let chunk_promise = reader.read();
+        let chunk_result = wasm_bindgen_futures::JsFuture::from(chunk_promise)
+            .await
+            .map_err(|e| format!("Read failed: {:?}", e))?;
+
+        let done = js_sys::Reflect::get(&chunk_result, &"done".into())
+            .unwrap_or(wasm_bindgen::JsValue::TRUE)
+            .as_bool()
+            .unwrap_or(true);
+
+        if !done {
+            if let Ok(value) = js_sys::Reflect::get(&chunk_result, &"value".into()) {
+                let arr: js_sys::Uint8Array = js_sys::Uint8Array::new(&value);
+                let mut buf = vec![0u8; arr.length() as usize];
+                arr.copy_to(&mut buf);
+                let decoded = String::from_utf8_lossy(&buf).to_string();
+                buffer.push_str(&decoded);
+
+                // Parse SSE events from buffer
+                while let Some(event) = parse_next_sse_event(&mut buffer) {
+                    on_event(event);
+                }
+            }
+        }
+
+        if done {
+            // Process any remaining buffer
+            while let Some(event) = parse_next_sse_event(&mut buffer) {
+                on_event(event);
+            }
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+/// Parse a single SSE event from the buffer, consuming it.
+fn parse_next_sse_event(buffer: &mut String) -> Option<StreamEvent> {
+    // SSE events are separated by double newline
+    let end_idx = buffer.find("\n\n")?;
+    let event_text: String = buffer.drain(..end_idx + 2).collect();
+
+    let mut event_type = String::new();
+    let mut data = String::new();
+
+    for line in event_text.lines() {
+        if let Some(rest) = line.strip_prefix("event: ") {
+            event_type = rest.trim().to_string();
+        } else if let Some(rest) = line.strip_prefix("data: ") {
+            data = rest.to_string();
+        }
+    }
+
+    match event_type.as_str() {
+        "sources" => {
+            let sources: Vec<String> = serde_json::from_str(&data).unwrap_or_default();
+            Some(StreamEvent::Sources(sources))
+        }
+        "contexts" => {
+            let contexts: Vec<SourceContext> = serde_json::from_str(&data).unwrap_or_default();
+            Some(StreamEvent::Contexts(contexts))
+        }
+        "token" => {
+            let token: String = serde_json::from_str(&data).unwrap_or_default();
+            Some(StreamEvent::Token(token))
+        }
+        "done" => Some(StreamEvent::Done),
+        "error" => {
+            let msg: String = serde_json::from_str(&data).unwrap_or(data);
+            Some(StreamEvent::Error(msg))
+        }
+        _ => None,
+    }
 }
 
 /// Ingest documents at the given paths.
@@ -118,4 +258,200 @@ pub async fn fetch_ollama_status() -> Result<OllamaStatusResponse, String> {
     resp.json::<OllamaStatusResponse>()
         .await
         .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Switch the active Ollama model.
+pub async fn switch_model(model: &str) -> Result<SwitchModelResponse, String> {
+    let client = reqwest::Client::new();
+    let body = SwitchModelRequest {
+        model: model.to_string(),
+    };
+    let resp = client
+        .put(format!("{BASE}/ollama/model"))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<SwitchModelResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Upload files via multipart form data, auto-ingest on the backend.
+/// Uses web_sys FormData + fetch for true browser file upload.
+pub async fn upload_files(
+    file_data: Vec<(String, Vec<u8>)>,
+    tags: Option<String>,
+    version: Option<String>,
+) -> Result<UploadResponse, String> {
+    use js_sys::{Array, Uint8Array};
+    use wasm_bindgen::JsCast;
+    use web_sys::{Blob, BlobPropertyBag, FormData, Request, RequestInit, Response};
+
+    let form = FormData::new().map_err(|e| format!("FormData::new failed: {:?}", e))?;
+
+    for (name, bytes) in &file_data {
+        // Create Blob from bytes
+        let uint8 = Uint8Array::from(bytes.as_slice());
+        let parts = Array::new();
+        parts.push(&uint8);
+        let bag = BlobPropertyBag::new();
+        bag.set_type("application/octet-stream");
+        let blob = Blob::new_with_u8_array_sequence_and_options(&parts, &bag)
+            .map_err(|e| format!("Blob creation failed: {:?}", e))?;
+
+        form.append_with_blob_and_filename("files", &blob, name)
+            .map_err(|e| format!("FormData append failed: {:?}", e))?;
+    }
+
+    if let Some(t) = &tags {
+        form.append_with_str("tags", t)
+            .map_err(|e| format!("FormData append tags failed: {:?}", e))?;
+    }
+    if let Some(v) = &version {
+        form.append_with_str("version", v)
+            .map_err(|e| format!("FormData append version failed: {:?}", e))?;
+    }
+
+    // Use fetch API directly (reqwest doesn't support FormData with Blob in WASM)
+    let opts = RequestInit::new();
+    opts.set_method("POST");
+    opts.set_body(&form);
+
+    let url = format!("{BASE}/upload");
+    let request = Request::new_with_str_and_init(&url, &opts)
+        .map_err(|e| format!("Request creation failed: {:?}", e))?;
+
+    let window = web_sys::window().ok_or("No window")?;
+    let resp_value = wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| format!("Fetch failed: {:?}", e))?;
+
+    let resp: Response = resp_value
+        .dyn_into()
+        .map_err(|_| "Response cast failed".to_string())?;
+
+    if !resp.ok() {
+        let text = wasm_bindgen_futures::JsFuture::from(
+            resp.text().map_err(|_| "Failed to read error body".to_string())?,
+        )
+        .await
+        .map_err(|_| "Failed to await error body".to_string())?;
+        let body = text.as_string().unwrap_or_default();
+        return Err(format!("Server error ({}): {}", resp.status(), body));
+    }
+
+    let json_val = wasm_bindgen_futures::JsFuture::from(
+        resp.json().map_err(|_| "Failed to parse JSON".to_string())?,
+    )
+    .await
+    .map_err(|_| "Failed to await JSON".to_string())?;
+
+    let upload_resp: UploadResponse = serde_wasm_bindgen::from_value(json_val)
+        .map_err(|e| format!("Deserialization failed: {:?}", e))?;
+
+    Ok(upload_resp)
+}
+
+// ── Session history API ─────────────────────────────────
+
+/// Fetch all session summaries from the server.
+pub async fn fetch_sessions() -> Result<SessionListResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{BASE}/sessions"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<SessionListResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Fetch a full session with messages from the server.
+pub async fn fetch_session(session_id: &str) -> Result<SessionDetailResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{BASE}/sessions/{session_id}"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<SessionDetailResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Save (create or update) a session on the server.
+pub async fn save_session(
+    id: &str,
+    title: &str,
+    messages: &[crate::models::ChatMessage],
+    documents: &[String],
+) -> Result<(), String> {
+    let msg_payload: Vec<serde_json::Value> = messages
+        .iter()
+        .filter(|m| !m.streaming)
+        .map(|m| {
+            serde_json::json!({
+                "role": match m.role {
+                    crate::models::Role::User => "user",
+                    crate::models::Role::Assistant => "assistant",
+                },
+                "text": m.text,
+                "sources": m.sources,
+            })
+        })
+        .collect();
+
+    let body = serde_json::json!({
+        "id": id,
+        "title": title,
+        "messages": msg_payload,
+        "documents": documents,
+    });
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{BASE}/sessions"))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    Ok(())
+}
+
+/// Delete a session on the server.
+pub async fn delete_session(session_id: &str) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .delete(format!("{BASE}/sessions/{session_id}"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    Ok(())
 }
