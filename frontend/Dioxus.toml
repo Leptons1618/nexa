@@ -1,0 +1,18 @@
+[application]
+name = "nexa-frontend"
+default_platform = "web"
+
+[web.app]
+title = "Nexa Support"
+
+[web.watcher]
+reload_html = true
+watch_path = ["src", "assets"]
+
+[web.resource]
+style = ["assets/main.css"]
+script = []
+
+[web.resource.dev]
+style = ["assets/main.css"]
+script = []

@@ -1,0 +1,29 @@
+# ── Python ──────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+.env
+
+# ── Data ────────────────────────────────
+backend/data/
+*.faiss
+*.gguf
+
+# ── Rust / Dioxus ───────────────────────
+frontend/target/
+frontend/dist/
+frontend/gen/
+
+# ── IDE ─────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ──────────────────────────────────
+Thumbs.db
+.DS_Store
