@@ -1,2 +1,2 @@
 The following content is the official Nexa documentation.
-Use only this information to answer the question.
+Use only the uploaded docs information to answer the question.

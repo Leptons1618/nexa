@@ -119,8 +119,21 @@ class HistoryService:
 
     def delete_session(self, session_id: str) -> bool:
         p = self._session_path(session_id)
-        if p.exists():
-            p.unlink()
-            logger.info("Deleted session %s", session_id)
-            return True
-        return False
+        if not p.exists():
+            return False
+
+        # Clean up uploaded documents associated with this session
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            documents = data.get("documents", [])
+            for doc_path in documents:
+                doc_file = Path(doc_path)
+                if doc_file.exists() and doc_file.is_file():
+                    doc_file.unlink()
+                    logger.info("Deleted associated document: %s", doc_path)
+        except Exception as exc:
+            logger.warning("Error cleaning up documents for session %s: %s", session_id, exc)
+
+        p.unlink()
+        logger.info("Deleted session %s", session_id)
+        return True

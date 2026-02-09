@@ -695,3 +695,24 @@ pub fn IconChevronRight(size: Option<u32>) -> Element {
         }
     }
 }
+
+#[component]
+pub fn IconRefreshCw(size: Option<u32>) -> Element {
+    let s = size.unwrap_or(20);
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{s}",
+            height: "{s}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            polyline { points: "23 4 23 10 17 10" }
+            polyline { points: "1 20 1 14 7 14" }
+            path { d: "M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" }
+        }
+    }
+}

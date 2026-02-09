@@ -3,12 +3,16 @@
 use dioxus::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::components::icons::{IconBot, IconCopy, IconTag, IconUser};
+use crate::components::icons::{IconBot, IconCopy, IconRefreshCw, IconTag, IconUser};
 use crate::components::rich_content::RichContent;
 use crate::models::{ChatMessage, Role};
 
 #[component]
-pub fn ChatBubble(msg: ChatMessage) -> Element {
+pub fn ChatBubble(
+    msg: ChatMessage,
+    on_regenerate: Option<EventHandler<()>>,
+    is_last_bot: Option<bool>,
+) -> Element {
     let is_user = msg.role == Role::User;
     let bubble_class = if is_user {
         "bubble bubble--user"
@@ -47,7 +51,7 @@ pub fn ChatBubble(msg: ChatMessage) -> Element {
                     }
                 }
 
-                // Bubble actions (copy, etc.) — only for bot messages that are done
+                // Bubble actions (copy, regenerate, etc.) — only for bot messages that are done
                 if !is_user && !streaming && !msg.text.is_empty() {
                     div { class: "bubble-actions",
                         button {
@@ -64,6 +68,19 @@ pub fn ChatBubble(msg: ChatMessage) -> Element {
                             },
                             IconCopy { size: 14 }
                         }
+                        if is_last_bot.unwrap_or(false) {
+                            if let Some(handler) = &on_regenerate {
+                                button {
+                                    class: "bubble-action-btn",
+                                    title: "Regenerate response",
+                                    onclick: {
+                                        let handler = handler.clone();
+                                        move |_| handler.call(())
+                                    },
+                                    IconRefreshCw { size: 14 }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -74,11 +91,11 @@ pub fn ChatBubble(msg: ChatMessage) -> Element {
                             SourceTag {
                                 source: source.clone(),
                                 context_text: msg.source_contexts.get(idx)
-                                                                    .map(|c| c.text.clone())
-                                                                    .unwrap_or_default(),
+                                                                                                    .map(|c| c.text.clone())
+                                                                                                    .unwrap_or_default(),
                                 score: msg.source_contexts.get(idx)
-                                                                    .map(|c| c.score)
-                                                                    .unwrap_or(0.0),
+                                                                                                    .map(|c| c.score)
+                                                                                                    .unwrap_or(0.0),
                             }
                         }
                     }

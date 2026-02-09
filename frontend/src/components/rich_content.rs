@@ -111,8 +111,46 @@ fn render_markdown_to_html(input: &str) -> String {
                 i += 1;
             }
             result.push_str(&format!(
-                "<div class=\"katex-block\" data-latex=\"{}\"></div>",
-                escape_html_attr(&latex)
+                "<div class=\"katex-block\" data-latex=\"{}\">{}</div>",
+                escape_html_attr(&latex),
+                escape_html(&latex)
+            ));
+            continue;
+        }
+
+        // ── LaTeX display block (\[...\]) ────────────────
+        if line.trim().starts_with("\\[") {
+            if in_list {
+                result.push_str(&format!("</{list_type}>"));
+                in_list = false;
+            }
+            let mut latex = String::new();
+            if line.trim() == "\\[" {
+                i += 1;
+                while i < lines.len() && lines[i].trim() != "\\]" {
+                    if !latex.is_empty() {
+                        latex.push('\n');
+                    }
+                    latex.push_str(lines[i]);
+                    i += 1;
+                }
+                i += 1;
+            } else {
+                // Single-line: \[ ... \]
+                let trimmed = line.trim();
+                let content = trimmed
+                    .strip_prefix("\\[")
+                    .unwrap_or(trimmed)
+                    .strip_suffix("\\]")
+                    .unwrap_or(trimmed)
+                    .trim();
+                latex = content.to_string();
+                i += 1;
+            }
+            result.push_str(&format!(
+                "<div class=\"katex-block\" data-latex=\"{}\">{}</div>",
+                escape_html_attr(&latex),
+                escape_html(&latex)
             ));
             continue;
         }
@@ -347,13 +385,38 @@ fn process_inline(text: &str) -> String {
             }
         }
 
+        // Inline LaTeX \(...\)
+        if chars[i] == '\\' && i + 1 < len && chars[i + 1] == '(' {
+            let start_pos = i + 2;
+            let mut found = false;
+            let mut end_pos = start_pos;
+            while end_pos + 1 < len {
+                if chars[end_pos] == '\\' && chars[end_pos + 1] == ')' {
+                    found = true;
+                    break;
+                }
+                end_pos += 1;
+            }
+            if found {
+                let latex: String = chars[start_pos..end_pos].iter().collect();
+                result.push_str(&format!(
+                    "<span class=\"katex-inline\" data-latex=\"{}\">{}</span>",
+                    escape_html_attr(&latex),
+                    escape_html(&latex)
+                ));
+                i = end_pos + 2;
+                continue;
+            }
+        }
+
         // Inline LaTeX $...$ (not $$)
         if chars[i] == '$' && (i + 1 < len && chars[i + 1] != '$') {
             if let Some(end) = find_closing(&chars, i + 1, '$') {
                 let latex: String = chars[i + 1..end].iter().collect();
                 result.push_str(&format!(
-                    "<span class=\"katex-inline\" data-latex=\"{}\"></span>",
-                    escape_html_attr(&latex)
+                    "<span class=\"katex-inline\" data-latex=\"{}\">{}</span>",
+                    escape_html_attr(&latex),
+                    escape_html(&latex)
                 ));
                 i = end + 1;
                 continue;

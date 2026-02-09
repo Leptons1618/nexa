@@ -384,9 +384,7 @@ html, body {
   flex-direction: column;
   flex: 1;
   overflow: hidden;
-  max-width: 880px;
   width: 100%;
-  margin: 0 auto;
   padding: 0 24px;
   position: relative;
 }
@@ -426,7 +424,7 @@ html, body {
 .bubble {
   display: flex;
   gap: 12px;
-  max-width: 90%;
+  max-width: 100%;
   animation: fadeSlideIn .25s ease;
 }
 .bubble--user { align-self: flex-end; flex-direction: row-reverse; }
@@ -504,6 +502,10 @@ html, body {
   background: #f1f5f9;
   color: var(--clr-primary);
   border-color: var(--clr-primary);
+}
+.bubble-action-btn[title="Regenerate response"]:hover {
+  color: var(--clr-success);
+  border-color: var(--clr-success);
 }
 
 /* ── Source Tags ──────────────────────────────────── */

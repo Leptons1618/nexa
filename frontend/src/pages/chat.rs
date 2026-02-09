@@ -389,6 +389,104 @@ pub fn Chat() -> Element {
         });
     };
 
+    // Regenerate: remove last bot message and re-send last user message
+    let on_regenerate = move |_: ()| {
+        let msgs = messages.read().clone();
+        // Find the last user message
+        let last_user_text = msgs
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .map(|m| m.text.clone());
+
+        if let Some(user_text) = last_user_text {
+            // Remove last bot message
+            let mut new_msgs: Vec<ChatMessage> = msgs.clone();
+            if let Some(last) = new_msgs.last() {
+                if last.role == Role::Assistant {
+                    new_msgs.pop();
+                }
+            }
+            messages.set(new_msgs);
+
+            // Re-send the same user question
+            loading.set(true);
+            messages.write().push(ChatMessage {
+                role: Role::Assistant,
+                text: String::new(),
+                sources: vec![],
+                source_contexts: vec![],
+                streaming: true,
+            });
+
+            spawn(async move {
+                let result = api::stream_chat(&user_text, |event| match event {
+                    StreamEvent::Token(token) => {
+                        let mut msgs = messages.write();
+                        if let Some(last) = msgs.last_mut() {
+                            last.text.push_str(&token);
+                        }
+                    }
+                    StreamEvent::Sources(sources) => {
+                        let mut msgs = messages.write();
+                        if let Some(last) = msgs.last_mut() {
+                            last.sources = sources;
+                        }
+                    }
+                    StreamEvent::Contexts(contexts) => {
+                        let mut msgs = messages.write();
+                        if let Some(last) = msgs.last_mut() {
+                            last.source_contexts = contexts;
+                        }
+                    }
+                    StreamEvent::Done => {
+                        let mut msgs = messages.write();
+                        if let Some(last) = msgs.last_mut() {
+                            last.streaming = false;
+                        }
+                    }
+                    StreamEvent::Error(err) => {
+                        let mut msgs = messages.write();
+                        if let Some(last) = msgs.last_mut() {
+                            last.text = format!("Error: {err}");
+                            last.streaming = false;
+                        }
+                    }
+                })
+                .await;
+
+                if let Err(err) = result {
+                    let mut msgs = messages.write();
+                    if let Some(last) = msgs.last_mut() {
+                        if last.streaming {
+                            last.text = format!("Error: {err}");
+                            last.streaming = false;
+                        }
+                    }
+                }
+
+                loading.set(false);
+
+                // Persist updated session
+                let current_id = active_session_id.read().clone();
+                let current_messages = messages.read().clone();
+                let current_docs: Vec<String> =
+                    uploaded_docs.read().iter().map(|d| d.path.clone()).collect();
+                let title = title_from_messages(&current_messages);
+                {
+                    let mut sess = sessions.write();
+                    if let Some(s) = sess.iter_mut().find(|s| s.id == current_id) {
+                        s.messages = current_messages.clone();
+                        s.documents = current_docs.clone();
+                        s.title = title.clone();
+                    }
+                }
+                let _ = api::save_session(&current_id, &title, &current_messages, &current_docs)
+                    .await;
+            });
+        }
+    };
+
     let is_empty = messages.read().is_empty();
     let is_collapsed = *sidebar_collapsed.read();
     let doc_count = uploaded_docs.read().len();
@@ -482,8 +580,23 @@ pub fn Chat() -> Element {
                         }
                     } else {
                         div { class: "chat-messages",
-                            for msg in messages.read().iter() {
-                                ChatBubble { msg: msg.clone() }
+                            {
+                                let msgs = messages.read();
+                                let last_bot_idx = msgs
+                                    .iter()
+                                    .enumerate()
+                                    .rev()
+                                    .find(|(_, m)| m.role == Role::Assistant)
+                                    .map(|(idx, _)| idx);
+                                rsx! {
+                                    for (idx , msg) in msgs.iter().enumerate() {
+                                        ChatBubble {
+                                            msg: msg.clone(),
+                                            on_regenerate,
+                                            is_last_bot: Some(last_bot_idx == Some(idx)),
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
