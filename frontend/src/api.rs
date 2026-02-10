@@ -2,8 +2,11 @@
 
 use crate::models::{
     ChatRequest, ChatResponse, ConfigResponse, HealthResponse, IngestRequest, IngestResponse,
-    OllamaModelsResponse, OllamaStatusResponse, SessionDetailResponse, SessionListResponse,
+    IndexStatsResponse, LLMSettingsResponse, LLMSettingsUpdateRequest,
+    OllamaModelsResponse, OllamaStatusResponse, PromptsResponse, PromptsUpdateRequest,
+    SessionDetailResponse, SessionListResponse,
     SourceContext, SwitchModelRequest, SwitchModelResponse, UploadResponse,
+    UploadedFilesListResponse,
 };
 
 const BASE: &str = "http://localhost:8000/api";
@@ -454,4 +457,171 @@ pub async fn delete_session(session_id: &str) -> Result<(), String> {
         return Err(format!("Server error ({status}): {text}"));
     }
     Ok(())
+}
+
+/// Clear all chat sessions on the server.
+pub async fn clear_all_sessions() -> Result<u64, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .delete(format!("{BASE}/sessions"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    let val: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+    Ok(val.get("deleted").and_then(|v| v.as_u64()).unwrap_or(0))
+}
+
+// ── Prompts API ─────────────────────────────────────────
+
+/// Fetch current system and RAG prompts.
+pub async fn fetch_prompts() -> Result<PromptsResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{BASE}/prompts"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<PromptsResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Update system and/or RAG prompts.
+pub async fn update_prompts(req: &PromptsUpdateRequest) -> Result<PromptsResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .put(format!("{BASE}/prompts"))
+        .json(req)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<PromptsResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+// ── Uploaded files API ──────────────────────────────────
+
+/// List uploaded files.
+pub async fn fetch_uploaded_files() -> Result<UploadedFilesListResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{BASE}/uploads"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<UploadedFilesListResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Delete an uploaded file.
+pub async fn delete_uploaded_file(filename: &str) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .delete(format!("{BASE}/uploads/{filename}"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    Ok(())
+}
+
+// ── Index API ───────────────────────────────────────────
+
+/// Fetch vector index statistics.
+pub async fn fetch_index_stats() -> Result<IndexStatsResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{BASE}/index/stats"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<IndexStatsResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Rebuild (clear) the vector index.
+pub async fn rebuild_index() -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{BASE}/index/rebuild"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    Ok(())
+}
+
+// ── LLM Settings API ───────────────────────────────────
+
+/// Fetch LLM/RAG tuning parameters.
+pub async fn fetch_llm_settings() -> Result<LLMSettingsResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{BASE}/settings/llm"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<LLMSettingsResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Update LLM/RAG tuning parameters.
+pub async fn update_llm_settings(req: &LLMSettingsUpdateRequest) -> Result<LLMSettingsResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .put(format!("{BASE}/settings/llm"))
+        .json(req)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<LLMSettingsResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
 }

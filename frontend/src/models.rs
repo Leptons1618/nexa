@@ -29,6 +29,7 @@ pub struct IngestResponse {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct HealthResponse {
     pub status: String,
     pub llm_connected: bool,
@@ -36,6 +37,7 @@ pub struct HealthResponse {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct ConfigResponse {
     pub llm_provider: String,
     pub model_name: String,
@@ -62,6 +64,7 @@ pub struct OllamaModelsResponse {
 
 /// Response from `/api/ollama/status`.
 #[derive(Clone, Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct OllamaStatusResponse {
     pub running: bool,
     pub base_url: String,
@@ -127,6 +130,7 @@ pub struct ChatSession {
 
 /// Server-side session summary (from GET /api/sessions).
 #[derive(Clone, Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct SessionSummary {
     pub id: String,
     pub title: String,
@@ -151,6 +155,7 @@ pub struct ServerMessage {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct SessionDetailResponse {
     pub id: String,
     pub title: String,
@@ -183,4 +188,78 @@ pub struct UploadedFileInfo {
 pub struct UploadResponse {
     pub files: Vec<UploadedFileInfo>,
     pub chunks_indexed: u64,
+}
+
+// ── New models for settings management ─────────────────
+
+/// Prompts read/write.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PromptsResponse {
+    pub system_prompt: String,
+    pub rag_addon_prompt: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PromptsUpdateRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rag_addon_prompt: Option<String>,
+}
+
+/// Uploaded file entry from `/api/uploads`.
+#[derive(Clone, Debug, Deserialize)]
+#[allow(dead_code)]
+pub struct UploadedFileEntry {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub modified_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct UploadedFilesListResponse {
+    pub files: Vec<UploadedFileEntry>,
+}
+
+/// Index statistics from `/api/index/stats`.
+#[derive(Clone, Debug, Deserialize)]
+#[allow(dead_code)]
+pub struct IndexStatsResponse {
+    pub total_vectors: u64,
+    pub total_metadata: u64,
+    pub index_path: String,
+    pub metadata_path: String,
+    pub index_size_bytes: u64,
+    pub metadata_size_bytes: u64,
+}
+
+/// LLM/RAG tuning settings.
+#[derive(Clone, Debug, Deserialize)]
+pub struct LLMSettingsResponse {
+    pub temperature: f64,
+    pub top_p: f64,
+    pub max_tokens: u64,
+    pub chunk_size: u64,
+    pub chunk_overlap: u64,
+    pub top_k: u64,
+    pub similarity_threshold: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Default)]
+pub struct LLMSettingsUpdateRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_overlap: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub similarity_threshold: Option<f64>,
 }

@@ -9,7 +9,7 @@ use crate::components::chat_bubble::ChatBubble;
 use crate::components::chat_history::ChatHistory;
 use crate::components::chat_input::ChatInput;
 use crate::components::icons::{
-    IconChevronLeft, IconChevronRight, IconFileCode, IconFileText, IconMessageSquare,
+    IconChevronRight, IconFileCode, IconFileText, IconMessageSquare,
     IconSettings, IconUpload, IconX,
 };
 use crate::components::model_selector::ModelSelector;
@@ -497,20 +497,21 @@ pub fn Chat() -> Element {
             aside { class: if is_collapsed { "sidebar sidebar--collapsed" } else { "sidebar" },
 
                 div { class: "sidebar-brand",
-                    IconCpuBrand {}
-                    if !is_collapsed {
-                        span { "Nexa Support" }
+                    div { class: "sidebar-brand-left",
+                        IconCpuBrand {}
+                        if !is_collapsed {
+                            span { "Nexa Support" }
+                        }
                     }
-                }
-
-                button {
-                    class: "sidebar-toggle",
-                    title: if is_collapsed { "Expand sidebar" } else { "Collapse sidebar" },
-                    onclick: move |_| sidebar_collapsed.set(!is_collapsed),
-                    if is_collapsed {
-                        IconChevronRight { size: 16 }
-                    } else {
-                        IconChevronLeft { size: 16 }
+                    button {
+                        class: "sidebar-toggle",
+                        title: if is_collapsed { "Expand sidebar" } else { "Collapse sidebar" },
+                        onclick: move |_| sidebar_collapsed.set(!is_collapsed),
+                        if is_collapsed {
+                            IconChevronRight { size: 14 }
+                        } else {
+                            IconMenu { size: 16 }
+                        }
                     }
                 }
 
@@ -817,6 +818,42 @@ fn IconCpuBrand() -> Element {
                 y1: "14",
                 x2: "4",
                 y2: "14",
+            }
+        }
+    }
+}
+
+/// Simple hamburger icon for sidebar toggle.
+#[component]
+fn IconMenu(size: u32) -> Element {
+    rsx! {
+        svg {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "{size}",
+            height: "{size}",
+            view_box: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            line {
+                x1: "4",
+                y1: "6",
+                x2: "20",
+                y2: "6",
+            }
+            line {
+                x1: "4",
+                y1: "12",
+                x2: "20",
+                y2: "12",
+            }
+            line {
+                x1: "4",
+                y1: "18",
+                x2: "20",
+                y2: "18",
             }
         }
     }

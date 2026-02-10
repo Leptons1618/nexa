@@ -9,6 +9,11 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+BASE_DIR = Path(__file__).resolve().parents[2]
+APP_DIR = BASE_DIR / "app"
+DATA_DIR = BASE_DIR / "data"
+
+
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -46,8 +51,8 @@ class AppSettings(BaseSettings):
 
     # ── Vector store ────────────────────────────────────
     vector_store: str = Field("faiss", description="'faiss' or 'qdrant'")
-    index_path: str = Field("data/index.faiss")
-    metadata_path: str = Field("data/index_meta.json")
+    index_path: str = Field(str(DATA_DIR / "index.faiss"))
+    metadata_path: str = Field(str(DATA_DIR / "index_meta.json"))
     qdrant_url: str | None = Field(None)
     qdrant_api_key: str | None = Field(None)
     qdrant_collection: str = Field("nexa_support")
@@ -59,12 +64,12 @@ class AppSettings(BaseSettings):
     similarity_threshold: float = Field(0.35)
 
     # ── Prompts ─────────────────────────────────────────
-    system_prompt_path: str = Field("app/config/prompts/system.txt")
-    rag_prompt_path: str = Field("app/config/prompts/rag_addon.txt")
+    system_prompt_path: str = Field(str(APP_DIR / "config" / "prompts" / "system.txt"))
+    rag_prompt_path: str = Field(str(APP_DIR / "config" / "prompts" / "rag_addon.txt"))
 
     # ── Misc ────────────────────────────────────────────
     log_level: str = Field("INFO")
-    data_dir: str = Field("data")
+    data_dir: str = Field(str(DATA_DIR))
 
     def ensure_dirs(self) -> None:
         Path(self.data_dir).mkdir(parents=True, exist_ok=True)

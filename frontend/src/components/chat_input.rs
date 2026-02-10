@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::icons::{IconFileText, IconSend, IconUpload};
+use crate::components::icons::{IconFileText, IconSend};
 
 #[component]
 pub fn ChatInput(

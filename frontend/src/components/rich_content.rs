@@ -5,7 +5,7 @@
 //! 1. Parse block-level elements (code fences, LaTeX, headers, lists, tables, etc.)
 //! 2. Process inline markup (bold, italic, code, links, images, LaTeX)
 //! 3. Inject processed HTML via `dangerous_inner_html`
-//! 4. Syntax highlighting + LaTeX rendering handled by CDN scripts
+//! 4. Trigger highlight.js + KaTeX rendering via JS after mount
 
 use dioxus::prelude::*;
 
@@ -15,6 +15,11 @@ pub fn RichContent(text: String, streaming: Option<bool>) -> Element {
     let html = render_markdown_to_html(&text);
     let is_streaming = streaming.unwrap_or(false);
 
+    // Re-trigger syntax highlighting and KaTeX after every render
+    use_effect(move || {
+        trigger_rendering();
+    });
+
     rsx! {
         div {
             class: if is_streaming { "rich-content rich-content--streaming" } else { "rich-content" },
@@ -23,26 +28,84 @@ pub fn RichContent(text: String, streaming: Option<bool>) -> Element {
     }
 }
 
+/// Call highlight.js and KaTeX on newly rendered content.
+fn trigger_rendering() {
+    use wasm_bindgen::prelude::*;
+    #[wasm_bindgen]
+    extern "C" {
+        #[wasm_bindgen(js_namespace = ["window"], js_name = "requestAnimationFrame")]
+        fn request_animation_frame(closure: &Closure<dyn FnMut()>);
+    }
+
+    let cb = Closure::once(move || {
+        if let Some(window) = web_sys::window() {
+            if let Some(_document) = window.document() {
+                // highlight.js — apply to un-highlighted code blocks
+                let _ = js_sys::eval(
+                    r#"
+                    if (typeof hljs !== 'undefined') {
+                        document.querySelectorAll('.code-block code:not(.hljs)').forEach(function(el) {
+                            hljs.highlightElement(el);
+                        });
+                    }
+                    "#,
+                );
+                // KaTeX — render block and inline math
+                let _ = js_sys::eval(
+                    r#"
+                    if (typeof katex !== 'undefined') {
+                        document.querySelectorAll('.katex-block:not(.katex-rendered)').forEach(function(el) {
+                            try {
+                                var latex = el.getAttribute('data-latex');
+                                if (latex) {
+                                    katex.render(latex, el, { displayMode: true, throwOnError: false });
+                                    el.classList.add('katex-rendered');
+                                }
+                            } catch(e) {}
+                        });
+                        document.querySelectorAll('.katex-inline:not(.katex-rendered)').forEach(function(el) {
+                            try {
+                                var latex = el.getAttribute('data-latex');
+                                if (latex) {
+                                    katex.render(latex, el, { displayMode: false, throwOnError: false });
+                                    el.classList.add('katex-rendered');
+                                }
+                            } catch(e) {}
+                        });
+                    }
+                    "#,
+                );
+            }
+        }
+    });
+    request_animation_frame(&cb);
+    cb.forget(); // intentional: one-shot callback
+}
+
 /// Lightweight Markdown→HTML converter.
 ///
 /// Supports:
 /// - Fenced code blocks (```lang ... ```)
 /// - Inline code (`...`)
 /// - Bold (**...**), Italic (*...*), Strikethrough (~~...~~)
+/// - Bold+Italic (***...***) 
 /// - Headers (# ## ### etc.)
 /// - Ordered and unordered lists (with nesting)
+/// - Task lists (- [ ] / - [x])
 /// - Blockquotes (> ...)
 /// - Horizontal rules (--- or ***)
 /// - Links [text](url), Images ![alt](url)
 /// - Tables (| col | col |)
 /// - LaTeX blocks ($$...$$), Inline LaTeX ($...$)
+/// - Line breaks (trailing `\` or double space)
+/// - Superscript (^...^)
 /// - HTML passthrough
 fn render_markdown_to_html(input: &str) -> String {
     let mut result = String::with_capacity(input.len() * 2);
     let lines: Vec<&str> = input.lines().collect();
     let mut i = 0;
     let mut in_list = false;
-    let mut list_type = "";
+    let mut list_type: &str = "";
 
     while i < lines.len() {
         let line = lines[i];
@@ -136,7 +199,6 @@ fn render_markdown_to_html(input: &str) -> String {
                 }
                 i += 1;
             } else {
-                // Single-line: \[ ... \]
                 let trimmed = line.trim();
                 let content = trimmed
                     .strip_prefix("\\[")
@@ -166,7 +228,7 @@ fn render_markdown_to_html(input: &str) -> String {
             continue;
         }
 
-        // Close list if current line is not a list item
+        // Close list if current line is not a list item and not empty
         if in_list && !is_list_item(line) && !line.trim().is_empty() {
             result.push_str(&format!("</{list_type}>"));
             in_list = false;
@@ -201,7 +263,6 @@ fn render_markdown_to_html(input: &str) -> String {
                 in_list = false;
             }
             result.push_str("<blockquote>");
-            // Collect consecutive blockquote lines
             while i < lines.len()
                 && (lines[i].trim_start().starts_with("> ") || lines[i].trim_start() == ">")
             {
@@ -214,6 +275,31 @@ fn render_markdown_to_html(input: &str) -> String {
                 i += 1;
             }
             result.push_str("</blockquote>");
+            continue;
+        }
+
+        // ── Task list items ──────────────────────────────
+        if is_task_list_item(line) {
+            if !in_list || list_type != "ul" {
+                if in_list {
+                    result.push_str(&format!("</{list_type}>"));
+                }
+                result.push_str("<ul class=\"task-list\">");
+                in_list = true;
+                list_type = "ul";
+            }
+            let trimmed = line.trim_start();
+            let (checked, content) = parse_task_item(trimmed);
+            if checked {
+                result.push_str("<li class=\"task-list-item task-list-item--checked\">");
+                result.push_str("<span class=\"task-checkbox task-checkbox--checked\">&#9745;</span> ");
+            } else {
+                result.push_str("<li class=\"task-list-item\">");
+                result.push_str("<span class=\"task-checkbox\">&#9744;</span> ");
+            }
+            result.push_str(&process_inline(content));
+            result.push_str("</li>");
+            i += 1;
             continue;
         }
 
@@ -278,11 +364,49 @@ fn render_markdown_to_html(input: &str) -> String {
             continue;
         }
 
-        // ── Normal paragraph ────────────────────────────
-        result.push_str("<p>");
-        result.push_str(&process_inline(line));
-        result.push_str("</p>");
-        i += 1;
+        // ── Normal paragraph (collect consecutive lines) ─
+        let mut para = String::new();
+        while i < lines.len() {
+            let l = lines[i];
+            if l.trim().is_empty()
+                || l.trim_start().starts_with('#')
+                || l.trim_start().starts_with("```")
+                || l.trim_start().starts_with("> ")
+                || l.trim_start().starts_with("- ")
+                || l.trim_start().starts_with("* ")
+                || l.trim_start().starts_with("+ ")
+                || l.trim().starts_with("$$")
+                || l.trim().starts_with("\\[")
+                || is_task_list_item(l)
+                || (l.contains('|') && l.trim().starts_with('|') && l.trim().ends_with('|'))
+                || l.trim() == "---"
+                || l.trim() == "***"
+                || l.trim() == "___"
+                || parse_ordered_list_item(l).is_some()
+            {
+                break;
+            }
+            if !para.is_empty() {
+                // Trailing backslash or double space → <br>
+                if para.ends_with('\\') {
+                    para.pop();
+                    para.push_str("<br>");
+                } else if para.ends_with("  ") {
+                    let trimmed = para.trim_end().to_string();
+                    para = trimmed;
+                    para.push_str("<br>");
+                } else {
+                    para.push(' ');
+                }
+            }
+            para.push_str(l);
+            i += 1;
+        }
+        if !para.is_empty() {
+            result.push_str("<p>");
+            result.push_str(&process_inline(&para));
+            result.push_str("</p>");
+        }
     }
 
     if in_list {
@@ -292,9 +416,29 @@ fn render_markdown_to_html(input: &str) -> String {
     result
 }
 
+// ── Task list helpers ────────────────────────────────────
+
+fn is_task_list_item(line: &str) -> bool {
+    let t = line.trim_start();
+    t.starts_with("- [ ] ") || t.starts_with("- [x] ") || t.starts_with("- [X] ")
+        || t.starts_with("* [ ] ") || t.starts_with("* [x] ") || t.starts_with("* [X] ")
+}
+
+fn parse_task_item(trimmed: &str) -> (bool, &str) {
+    if trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ")
+        || trimmed.starts_with("* [x] ") || trimmed.starts_with("* [X] ")
+    {
+        (true, &trimmed[6..])
+    } else if trimmed.starts_with("- [ ] ") || trimmed.starts_with("* [ ] ") {
+        (false, &trimmed[6..])
+    } else {
+        (false, trimmed)
+    }
+}
+
 /// Parse a markdown table starting at the current line.
 fn parse_table(lines: &[&str], i: &mut usize) -> String {
-    let mut html = String::from("<table>");
+    let mut html = String::from("<div class=\"table-wrapper\"><table>");
 
     // Header row
     if *i < lines.len() {
@@ -323,7 +467,7 @@ fn parse_table(lines: &[&str], i: &mut usize) -> String {
         html.push_str("</tr>");
         *i += 1;
     }
-    html.push_str("</tbody></table>");
+    html.push_str("</tbody></table></div>");
     html
 }
 
@@ -340,6 +484,7 @@ fn is_list_item(line: &str) -> bool {
     t.starts_with("- ")
         || t.starts_with("* ")
         || t.starts_with("+ ")
+        || is_task_list_item(line)
         || parse_ordered_list_item(line).is_some()
 }
 
@@ -367,7 +512,7 @@ fn parse_header(line: &str) -> Option<String> {
     }
 }
 
-/// Process inline markup: bold, italic, code, links, images, inline LaTeX.
+/// Process inline markup: bold, italic, code, links, images, inline LaTeX, line breaks.
 fn process_inline(text: &str) -> String {
     let mut result = String::with_capacity(text.len() * 2);
     let chars: Vec<char> = text.chars().collect();
@@ -375,6 +520,13 @@ fn process_inline(text: &str) -> String {
     let mut i = 0;
 
     while i < len {
+        // HTML <br> passthrough
+        if i + 3 < len && chars[i] == '<' && chars[i + 1] == 'b' && chars[i + 2] == 'r' && chars[i + 3] == '>' {
+            result.push_str("<br>");
+            i += 4;
+            continue;
+        }
+
         // Inline code
         if chars[i] == '`' {
             if let Some(end) = find_closing(&chars, i + 1, '`') {
@@ -412,13 +564,25 @@ fn process_inline(text: &str) -> String {
         // Inline LaTeX $...$ (not $$)
         if chars[i] == '$' && (i + 1 < len && chars[i + 1] != '$') {
             if let Some(end) = find_closing(&chars, i + 1, '$') {
-                let latex: String = chars[i + 1..end].iter().collect();
-                result.push_str(&format!(
-                    "<span class=\"katex-inline\" data-latex=\"{}\">{}</span>",
-                    escape_html_attr(&latex),
-                    escape_html(&latex)
-                ));
-                i = end + 1;
+                if end > i + 1 {
+                    let latex: String = chars[i + 1..end].iter().collect();
+                    result.push_str(&format!(
+                        "<span class=\"katex-inline\" data-latex=\"{}\">{}</span>",
+                        escape_html_attr(&latex),
+                        escape_html(&latex)
+                    ));
+                    i = end + 1;
+                    continue;
+                }
+            }
+        }
+
+        // Bold + italic ***...***
+        if i + 2 < len && chars[i] == '*' && chars[i + 1] == '*' && chars[i + 2] == '*' {
+            if let Some(end) = find_triple_closing(&chars, i + 3, '*') {
+                let inner: String = chars[i + 3..end].iter().collect();
+                result.push_str(&format!("<strong><em>{}</em></strong>", process_inline(&inner)));
+                i = end + 3;
                 continue;
             }
         }
@@ -444,22 +608,26 @@ fn process_inline(text: &str) -> String {
         }
 
         // Italic *...*
-        if chars[i] == '*' && (i + 1 < len && chars[i + 1] != '*') {
+        if chars[i] == '*' && (i + 1 < len && chars[i + 1] != '*' && chars[i + 1] != ' ') {
             if let Some(end) = find_closing(&chars, i + 1, '*') {
-                let inner: String = chars[i + 1..end].iter().collect();
-                result.push_str(&format!("<em>{}</em>", process_inline(&inner)));
-                i = end + 1;
-                continue;
+                if end > i + 1 {
+                    let inner: String = chars[i + 1..end].iter().collect();
+                    result.push_str(&format!("<em>{}</em>", process_inline(&inner)));
+                    i = end + 1;
+                    continue;
+                }
             }
         }
 
         // Italic _..._
-        if chars[i] == '_' && (i + 1 < len && chars[i + 1] != '_') {
+        if chars[i] == '_' && (i + 1 < len && chars[i + 1] != '_' && chars[i + 1] != ' ') {
             if let Some(end) = find_closing(&chars, i + 1, '_') {
-                let inner: String = chars[i + 1..end].iter().collect();
-                result.push_str(&format!("<em>{}</em>", process_inline(&inner)));
-                i = end + 1;
-                continue;
+                if end > i + 1 {
+                    let inner: String = chars[i + 1..end].iter().collect();
+                    result.push_str(&format!("<em>{}</em>", process_inline(&inner)));
+                    i = end + 1;
+                    continue;
+                }
             }
         }
 
@@ -478,11 +646,11 @@ fn process_inline(text: &str) -> String {
 
         // Link [text](url)
         if chars[i] == '[' {
-            if let Some((text, url, end)) = parse_link_or_image(&chars, i) {
+            if let Some((link_text, url, end)) = parse_link_or_image(&chars, i) {
                 result.push_str(&format!(
                     "<a href=\"{}\" target=\"_blank\" rel=\"noopener\">{}</a>",
                     escape_html_attr(&url),
-                    escape_html(&text)
+                    process_inline(&link_text)
                 ));
                 i = end;
                 continue;
@@ -496,6 +664,18 @@ fn process_inline(text: &str) -> String {
                 result.push_str(&format!("<del>{}</del>", process_inline(&inner)));
                 i = end + 2;
                 continue;
+            }
+        }
+
+        // Superscript ^...^
+        if chars[i] == '^' && i + 1 < len && chars[i + 1] != ' ' {
+            if let Some(end) = find_closing(&chars, i + 1, '^') {
+                if end > i + 1 {
+                    let inner: String = chars[i + 1..end].iter().collect();
+                    result.push_str(&format!("<sup>{}</sup>", escape_html(&inner)));
+                    i = end + 1;
+                    continue;
+                }
             }
         }
 
@@ -519,6 +699,15 @@ fn find_closing(chars: &[char], start: usize, delim: char) -> Option<usize> {
 fn find_double_closing(chars: &[char], start: usize, delim: char) -> Option<usize> {
     for j in start..chars.len().saturating_sub(1) {
         if chars[j] == delim && chars[j + 1] == delim {
+            return Some(j);
+        }
+    }
+    None
+}
+
+fn find_triple_closing(chars: &[char], start: usize, delim: char) -> Option<usize> {
+    for j in start..chars.len().saturating_sub(2) {
+        if chars[j] == delim && chars[j + 1] == delim && chars[j + 2] == delim {
             return Some(j);
         }
     }

@@ -133,3 +133,65 @@ class SessionDetail(BaseModel):
 
 class SessionListResponse(BaseModel):
     sessions: List[SessionSummary]
+
+
+# ── Prompts ─────────────────────────────────────────────
+
+
+class PromptsResponse(BaseModel):
+    system_prompt: str
+    rag_addon_prompt: str
+
+
+class PromptsUpdateRequest(BaseModel):
+    system_prompt: Optional[str] = None
+    rag_addon_prompt: Optional[str] = None
+
+
+# ── Uploaded files ──────────────────────────────────────
+
+
+class UploadedFileEntry(BaseModel):
+    name: str
+    path: str
+    size: int
+    modified_at: str
+
+
+class UploadedFilesListResponse(BaseModel):
+    files: List[UploadedFileEntry]
+
+
+# ── Index stats ─────────────────────────────────────────
+
+
+class IndexStatsResponse(BaseModel):
+    total_vectors: int
+    total_metadata: int
+    index_path: str
+    metadata_path: str
+    index_size_bytes: int
+    metadata_size_bytes: int
+
+
+# ── LLM Settings ───────────────────────────────────────
+
+
+class LLMSettingsResponse(BaseModel):
+    temperature: float
+    top_p: float
+    max_tokens: int
+    chunk_size: int
+    chunk_overlap: int
+    top_k: int
+    similarity_threshold: float
+
+
+class LLMSettingsUpdateRequest(BaseModel):
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    max_tokens: Optional[int] = None
+    chunk_size: Optional[int] = None
+    chunk_overlap: Optional[int] = None
+    top_k: Optional[int] = None
+    similarity_threshold: Optional[float] = None
