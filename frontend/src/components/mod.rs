@@ -6,6 +6,7 @@ pub mod doc_context;
 pub mod header;
 pub mod icons;
 pub mod model_selector;
+pub mod notifications;
 pub mod rich_content;
 pub mod sidebar;
 pub mod status_badge;

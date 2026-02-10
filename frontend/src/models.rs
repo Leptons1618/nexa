@@ -287,3 +287,71 @@ pub struct ApiKeysUpdateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloud_model: Option<String>,
 }
+
+// ── Cloud Model Listing ──────────────────────────────────
+
+/// A model entry from the cloud provider.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CloudModelEntry {
+    pub id: String,
+    #[allow(dead_code)]
+    pub owned_by: String,
+}
+
+/// Response from `/api/cloud/models`.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CloudModelsResponse {
+    pub models: Vec<CloudModelEntry>,
+}
+
+// ── Connection Test ──────────────────────────────────────
+
+/// Request to test a cloud connection (optionally overriding credentials).
+#[derive(Clone, Debug, Serialize, Default)]
+pub struct ConnectionTestRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+}
+
+/// Response from `/api/cloud/test-connection`.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ConnectionTestResponse {
+    pub success: bool,
+    pub message: String,
+    #[allow(dead_code)]
+    pub models_count: Option<u64>,
+}
+
+// ── API Profiles ─────────────────────────────────────────
+
+/// An API profile for saving multiple configurations.
+#[derive(Clone, Debug, Serialize)]
+pub struct ApiProfileCreate {
+    pub id: String,
+    pub name: String,
+    pub llm_provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_api_key: Option<String>,
+    pub cloud_base_url: String,
+    pub cloud_model: String,
+}
+
+/// Profile summary returned from the server (no key exposed).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ApiProfileSummary {
+    pub id: String,
+    pub name: String,
+    pub llm_provider: String,
+    pub cloud_api_key_set: bool,
+    pub cloud_base_url: String,
+    pub cloud_model: String,
+}
+
+/// Response from `/api/profiles`.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ApiProfileListResponse {
+    pub profiles: Vec<ApiProfileSummary>,
+    pub active_profile_id: Option<String>,
+}

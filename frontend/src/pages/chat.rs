@@ -16,7 +16,7 @@ use crate::components::icons::{
 use crate::components::model_selector::ModelSelector;
 use crate::components::upload_modal::UploadModal;
 use crate::models::{ChatMessage, ChatSession, Role, UploadedDoc};
-use crate::state::AppState;
+use crate::state::{AppState, ChatState};
 use crate::Route;
 
 /// Generate a simple unique id using a static counter.
@@ -61,8 +61,15 @@ fn title_from_messages(messages: &[ChatMessage]) -> String {
 
 #[component]
 pub fn Chat() -> Element {
-    // Active conversation
-    let mut messages = use_signal(Vec::<ChatMessage>::new);
+    // ── Pull chat state from global context (survives page navigation) ──
+    let chat = use_context::<ChatState>();
+    let mut messages = chat.messages;
+    let mut sessions = chat.sessions;
+    let mut active_session_id = chat.active_session_id;
+    let mut uploaded_docs = chat.uploaded_docs;
+    let chat_loaded = chat.chat_loaded;
+
+    // Active conversation loading indicator
     let mut loading = use_signal(|| false);
 
     // Model selector — use global state
@@ -71,13 +78,6 @@ pub fn Chat() -> Element {
 
     // Upload modal
     let show_upload = use_signal(|| false);
-
-    // Documents for current session
-    let mut uploaded_docs = use_signal(Vec::<UploadedDoc>::new);
-
-    // Chat history
-    let mut sessions = use_signal(Vec::<ChatSession>::new);
-    let mut active_session_id = use_signal(|| new_id());
 
     // Sidebar collapse state
     let mut sidebar_collapsed = use_signal(|| false);
@@ -89,16 +89,24 @@ pub fn Chat() -> Element {
     let mut show_confirm_delete_session = use_signal(|| false);
     let mut pending_delete_session_id = use_signal(|| String::new());
 
-    // Load sessions from server on mount
+    // Load sessions from server ONCE (not on every mount)
     {
         let sessions = sessions.clone();
         let active_session_id = active_session_id.clone();
         let messages = messages.clone();
+        let uploaded_docs = uploaded_docs.clone();
+        let chat_loaded = chat_loaded.clone();
         use_resource(move || {
             let mut sessions = sessions.clone();
             let mut active_session_id = active_session_id.clone();
             let mut messages = messages.clone();
+            let mut uploaded_docs = uploaded_docs.clone();
+            let mut chat_loaded = chat_loaded.clone();
             async move {
+                // Skip if already loaded
+                if *chat_loaded.read() {
+                    return;
+                }
                 if let Ok(list) = api::fetch_sessions().await {
                     let mut loaded: Vec<ChatSession> = Vec::new();
                     for s in &list.sessions {
@@ -132,10 +140,31 @@ pub fn Chat() -> Element {
                             loaded[0].documents = detail.documents.clone();
                             messages.set(msgs);
                             active_session_id.set(first_id);
+                            // Restore uploaded docs from the session
+                            let restored_docs: Vec<UploadedDoc> = detail
+                                .documents
+                                .iter()
+                                .map(|p| {
+                                    let name = p.rsplit(['/', '\\']).next().unwrap_or(p).to_string();
+                                    UploadedDoc {
+                                        name,
+                                        path: p.clone(),
+                                        chunks: 0,
+                                        size: 0,
+                                        tags: vec![],
+                                    }
+                                })
+                                .collect();
+                            uploaded_docs.set(restored_docs);
                         }
                     }
                     sessions.set(loaded);
                 }
+                // Ensure there's an active session ID even if no server sessions exist
+                if active_session_id.read().is_empty() {
+                    active_session_id.set(new_id());
+                }
+                chat_loaded.set(true);
             }
         });
     }

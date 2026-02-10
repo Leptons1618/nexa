@@ -65,3 +65,43 @@ class CloudLLMClient(LLMClient):
             return resp.status_code == 200
         except Exception:
             return False
+
+    def list_models(self) -> list[dict]:
+        """Fetch available models from the cloud provider.
+
+        Returns a list of dicts with at least an ``id`` key.
+        """
+        try:
+            resp = self._client.get(f"{self.base_url}/models")
+            resp.raise_for_status()
+            data = resp.json()
+            # OpenAI-compatible APIs return {"data": [{"id": ...}, ...]}
+            models = data.get("data", [])
+            return [{"id": m.get("id", "unknown"), "owned_by": m.get("owned_by", "")} for m in models]
+        except Exception as exc:
+            logger.warning("Failed to list cloud models: %s", exc)
+            return []
+
+    def test_connection(self) -> dict:
+        """Test the connection by hitting the models endpoint.
+
+        Returns a dict with ``success``, ``message``, and optionally ``models_count``.
+        """
+        try:
+            resp = self._client.get(f"{self.base_url}/models")
+            if resp.status_code == 200:
+                data = resp.json()
+                count = len(data.get("data", []))
+                return {
+                    "success": True,
+                    "message": f"Connected successfully. {count} model(s) available.",
+                    "models_count": count,
+                }
+            elif resp.status_code == 401:
+                return {"success": False, "message": "Authentication failed. Check your API key."}
+            else:
+                return {"success": False, "message": f"Server returned status {resp.status_code}."}
+        except httpx.ConnectError:
+            return {"success": False, "message": "Could not connect. Check the base URL."}
+        except Exception as exc:
+            return {"success": False, "message": f"Connection error: {exc}"}

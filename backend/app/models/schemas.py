@@ -212,3 +212,57 @@ class ApiKeysUpdateRequest(BaseModel):
     cloud_api_key: Optional[str] = None
     cloud_base_url: Optional[str] = None
     cloud_model: Optional[str] = None
+
+
+# ── Cloud Model Listing ─────────────────────────────────
+
+
+class CloudModelEntry(BaseModel):
+    id: str
+    owned_by: str = ""
+
+
+class CloudModelsResponse(BaseModel):
+    models: List[CloudModelEntry]
+
+
+# ── Connection Test ─────────────────────────────────────
+
+
+class ConnectionTestRequest(BaseModel):
+    """Optionally override credentials for a one-off test."""
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+
+
+class ConnectionTestResponse(BaseModel):
+    success: bool
+    message: str
+    models_count: Optional[int] = None
+
+
+# ── API Profiles (multiple saved configurations) ────────
+
+
+class ApiProfile(BaseModel):
+    id: str
+    name: str
+    llm_provider: str = "cloud"
+    cloud_api_key: Optional[str] = None
+    cloud_base_url: str = "https://api.openai.com/v1"
+    cloud_model: str = "gpt-4"
+
+
+class ApiProfileSummary(BaseModel):
+    """Like ApiProfile but never exposes the key."""
+    id: str
+    name: str
+    llm_provider: str
+    cloud_api_key_set: bool
+    cloud_base_url: str
+    cloud_model: str
+
+
+class ApiProfileListResponse(BaseModel):
+    profiles: List[ApiProfileSummary]
+    active_profile_id: Optional[str] = None

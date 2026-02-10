@@ -1,5 +1,6 @@
 //! Settings page — comprehensive configuration management with API keys,
-//! confirmation modals, and loading animations.
+//! confirmation modals, cloud model fetching, connection testing,
+//! multi-profile support, and toast notifications.
 
 use dioxus::prelude::*;
 
@@ -10,7 +11,11 @@ use crate::components::icons::{
     IconKey, IconMessageCircle, IconRefreshCw, IconSave, IconSettings as IconSettingsIcon,
     IconSliders, IconTrash,
 };
-use crate::models::{ApiKeysUpdateRequest, LLMSettingsUpdateRequest, PromptsUpdateRequest};
+use crate::components::notifications::use_notifications;
+use crate::models::{
+    ApiKeysUpdateRequest, ApiProfileCreate, ConnectionTestRequest, LLMSettingsUpdateRequest,
+    PromptsUpdateRequest,
+};
 
 #[component]
 pub fn Settings() -> Element {
@@ -57,6 +62,23 @@ pub fn Settings() -> Element {
     let mut api_keys_loaded = use_signal(|| false);
     let mut api_keys_saving = use_signal(|| false);
     let mut api_keys_msg = use_signal(|| Option::<(bool, String)>::None);
+
+    // Cloud model fetching state
+    let mut cloud_models = use_signal(Vec::<String>::new);
+    let mut cloud_models_loading = use_signal(|| false);
+
+    // Connection test state
+    let mut connection_testing = use_signal(|| false);
+
+    // API Profiles state
+    let mut profiles_res = use_resource(|| async { api::fetch_profiles().await });
+    let mut new_profile_name = use_signal(|| String::new());
+    let mut profile_saving = use_signal(|| false);
+    let mut show_confirm_delete_profile = use_signal(|| false);
+    let mut pending_delete_profile_id = use_signal(|| String::new());
+
+    // Notification handle
+    let mut toasts = use_notifications();
 
     // Confirmation modal state
     let mut show_confirm_clear_history = use_signal(|| false);
@@ -179,10 +201,130 @@ pub fn Settings() -> Element {
                 Ok(_) => {
                     api_keys_msg.set(Some((true, "API configuration saved.".into())));
                     api_key_input.set(String::new());
+                    toasts.success("Saved", "API configuration updated.");
                 }
-                Err(e) => api_keys_msg.set(Some((false, format!("Failed: {e}")))),
+                Err(e) => {
+                    api_keys_msg.set(Some((false, format!("Failed: {e}"))));
+                    toasts.error("Error", format!("Save failed: {e}"));
+                }
             }
             api_keys_saving.set(false);
+        });
+    };
+
+    // Fetch cloud models from the provider
+    let fetch_cloud_models = move |_| {
+        cloud_models_loading.set(true);
+        spawn(async move {
+            match api::fetch_cloud_models().await {
+                Ok(resp) => {
+                    let ids: Vec<String> = resp.models.iter().map(|m| m.id.clone()).collect();
+                    let count = ids.len();
+                    cloud_models.set(ids);
+                    toasts.success("Models Loaded", format!("{count} model(s) fetched from provider."));
+                }
+                Err(e) => {
+                    toasts.error("Fetch Failed", format!("Could not load models: {e}"));
+                }
+            }
+            cloud_models_loading.set(false);
+        });
+    };
+
+    // Test connection
+    let test_connection = move |_| {
+        connection_testing.set(true);
+        let url = api_base_url.read().clone();
+        let key = api_key_input.read().clone();
+        spawn(async move {
+            let req = ConnectionTestRequest {
+                base_url: Some(url),
+                api_key: if key.is_empty() { None } else { Some(key) },
+            };
+            match api::test_cloud_connection(&req).await {
+                Ok(resp) => {
+                    if resp.success {
+                        toasts.success("Connected", resp.message);
+                    } else {
+                        toasts.warning("Connection Failed", resp.message);
+                    }
+                }
+                Err(e) => {
+                    toasts.error("Test Error", format!("Request failed: {e}"));
+                }
+            }
+            connection_testing.set(false);
+        });
+    };
+
+    // Save current config as a new profile
+    let save_as_profile = move |_| {
+        let name = new_profile_name.read().clone();
+        if name.trim().is_empty() {
+            toasts.warning("Missing Name", "Enter a profile name first.");
+            return;
+        }
+        profile_saving.set(true);
+        let provider = api_provider.read().clone();
+        let key = api_key_input.read().clone();
+        let url = api_base_url.read().clone();
+        let model = api_cloud_model.read().clone();
+        spawn(async move {
+            let profile = ApiProfileCreate {
+                id: String::new(), // server will assign
+                name: name.clone(),
+                llm_provider: provider,
+                cloud_api_key: if key.is_empty() { None } else { Some(key) },
+                cloud_base_url: url,
+                cloud_model: model,
+            };
+            match api::create_profile(&profile).await {
+                Ok(_) => {
+                    toasts.success("Profile Saved", format!("'{name}' created."));
+                    new_profile_name.set(String::new());
+                    profiles_res.restart();
+                }
+                Err(e) => {
+                    toasts.error("Error", format!("Could not save profile: {e}"));
+                }
+            }
+            profile_saving.set(false);
+        });
+    };
+
+    // Activate a profile
+    let activate_profile = move |id: String, name: String| {
+        spawn(async move {
+            match api::activate_profile(&id).await {
+                Ok(_) => {
+                    toasts.success("Activated", format!("Profile '{name}' is now active."));
+                    profiles_res.restart();
+                    // Refresh the API keys view
+                    api_keys_loaded.set(false);
+                }
+                Err(e) => {
+                    toasts.error("Error", format!("Activation failed: {e}"));
+                }
+            }
+        });
+    };
+
+    // Delete a profile (triggered after confirm)
+    let do_delete_profile = move |_: ()| {
+        let pid = pending_delete_profile_id.read().clone();
+        if pid.is_empty() {
+            return;
+        }
+        spawn(async move {
+            match api::delete_profile(&pid).await {
+                Ok(_) => {
+                    toasts.success("Deleted", "Profile removed.");
+                    profiles_res.restart();
+                }
+                Err(e) => {
+                    toasts.error("Error", format!("Delete failed: {e}"));
+                }
+            }
         });
     };
 
@@ -193,8 +335,12 @@ pub fn Settings() -> Element {
             match api::clear_all_sessions().await {
                 Ok(n) => {
                     action_msg.set(Some((true, format!("Cleared {n} sessions."))));
+                    toasts.success("History Cleared", format!("{n} session(s) deleted."));
                 }
-                Err(e) => action_msg.set(Some((false, format!("Failed: {e}")))),
+                Err(e) => {
+                    action_msg.set(Some((false, format!("Failed: {e}"))));
+                    toasts.error("Error", format!("Clear failed: {e}"));
+                }
             }
         });
     };
@@ -209,8 +355,12 @@ pub fn Settings() -> Element {
                         "Index rebuilt. Re-ingest documents to populate.".into(),
                     )));
                     index_res.restart();
+                    toasts.success("Index Rebuilt", "Re-ingest documents to populate.");
                 }
-                Err(e) => action_msg.set(Some((false, format!("Failed: {e}")))),
+                Err(e) => {
+                    action_msg.set(Some((false, format!("Failed: {e}"))));
+                    toasts.error("Error", format!("Rebuild failed: {e}"));
+                }
             }
         });
     };
@@ -222,8 +372,12 @@ pub fn Settings() -> Element {
                 Ok(_) => {
                     action_msg.set(Some((true, "Vector index cleared.".into())));
                     index_res.restart();
+                    toasts.success("Index Cleared", "All vectors and metadata removed.");
                 }
-                Err(e) => action_msg.set(Some((false, format!("Failed: {e}")))),
+                Err(e) => {
+                    action_msg.set(Some((false, format!("Failed: {e}"))));
+                    toasts.error("Error", format!("Clear failed: {e}"));
+                }
             }
         });
     };
@@ -393,6 +547,8 @@ pub fn Settings() -> Element {
                             } else {
                                 "Enter your API key"
                             };
+                            let fetched_models = cloud_models.read().clone();
+                            let has_fetched = !fetched_models.is_empty();
                             if is_cloud {
                                 rsx! {
                                     div { class: "setting-field",
@@ -420,12 +576,47 @@ pub fn Settings() -> Element {
                                         }
                                         div { class: "setting-field",
                                             label { class: "setting-field-label", "Cloud Model" }
-                                            input {
-                                                class: "setting-input",
-                                                r#type: "text",
-                                                placeholder: "gpt-4",
-                                                value: "{api_cloud_model}",
-                                                oninput: move |e| api_cloud_model.set(e.value()),
+                                            if has_fetched {
+                                                select {
+                                                    class: "setting-select",
+                                                    value: "{api_cloud_model}",
+                                                    onchange: move |e: Event<FormData>| api_cloud_model.set(e.value()),
+                                                    for model_id in fetched_models.iter() {
+                                                        option { value: "{model_id}", "{model_id}" }
+                                                    }
+                                                }
+                                            } else {
+                                                input {
+                                                    class: "setting-input",
+                                                    r#type: "text",
+                                                    placeholder: "gpt-4",
+                                                    value: "{api_cloud_model}",
+                                                    oninput: move |e| api_cloud_model.set(e.value()),
+                                                }
+                                            }
+                                        }
+                                    }
+                                    div { class: "settings-section-actions",
+                                        button {
+                                            class: "btn btn--ghost btn--sm",
+                                            disabled: *cloud_models_loading.read(),
+                                            onclick: fetch_cloud_models,
+                                            IconRefreshCw { size: 14 }
+                                            if *cloud_models_loading.read() {
+                                                "Fetching…"
+                                            } else {
+                                                "Fetch Models"
+                                            }
+                                        }
+                                        button {
+                                            class: "btn btn--ghost btn--sm",
+                                            disabled: *connection_testing.read(),
+                                            onclick: test_connection,
+                                            IconCheckCircle { size: 14 }
+                                            if *connection_testing.read() {
+                                                "Testing…"
+                                            } else {
+                                                "Test Connection"
                                             }
                                         }
                                     }
@@ -450,6 +641,111 @@ pub fn Settings() -> Element {
                             if let Some((ok, msg)) = api_keys_msg.read().as_ref() {
                                 span { class: if *ok { "setting-inline-msg setting-inline-msg--ok" } else { "setting-inline-msg setting-inline-msg--error" },
                                     "{msg}"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ══════════════════════════════════════════
+                // 0b. API Profiles
+                // ══════════════════════════════════════════
+                div { class: "settings-section",
+                    div { class: "settings-section-header",
+                        div { class: "settings-section-icon settings-section-icon--green",
+                            IconFolder { size: 20 }
+                        }
+                        div {
+                            h2 { class: "settings-section-title", "API Profiles" }
+                            p { class: "settings-section-desc",
+                                "Save and switch between multiple API configurations."
+                            }
+                        }
+                    }
+                    div { class: "settings-section-body",
+                        // Saved profiles list
+                        match &*profiles_res.read() {
+                            Some(Ok(data)) => {
+                                let active_id = data.active_profile_id.clone().unwrap_or_default();
+                                rsx! {
+                                    if data.profiles.is_empty() {
+                                        p { class: "setting-empty", "No saved profiles yet." }
+                                    } else {
+                                        div { class: "setting-profile-list",
+                                            for profile in data.profiles.iter().cloned() {
+                                                {
+                                                    let is_active = profile.id == active_id;
+                                                    let pid = profile.id.clone();
+                                                    let pname = profile.name.clone();
+                                                    rsx! {
+                                                        div { class: if is_active { "setting-profile-item setting-profile-item--active" } else { "setting-profile-item" },
+                                                            div { class: "setting-profile-info",
+                                                                span { class: "setting-profile-name",
+                                                                    "{profile.name}"
+                                                                    if is_active {
+                                                                        span { class: "profile-badge", "Active" }
+                                                                    }
+                                                                }
+                                                                span { class: "setting-profile-meta", "{profile.llm_provider} · {profile.cloud_model}" }
+                                                            }
+                                                            div { class: "setting-profile-actions",
+                                                                if !is_active {
+                                                                    button {
+                                                                        class: "btn-icon",
+                                                                        title: "Activate",
+                                                                        onclick: move |_| activate_profile(pid.clone(), pname.clone()),
+                                                                        IconCheckCircle { size: 14 }
+                                                                    }
+                                                                }
+                                                                button {
+                                                                    class: "btn-icon btn-icon--danger",
+                                                                    title: "Delete profile",
+                                                                    onclick: move |_| {
+                                                                        pending_delete_profile_id.set(profile.id.clone());
+                                                                        show_confirm_delete_profile.set(true);
+                                                                    },
+                                                                    IconTrash { size: 14 }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Some(Err(e)) => rsx! {
+                                p { class: "setting-inline-msg setting-inline-msg--error", "Failed: {e}" }
+                            },
+                            None => rsx! {
+                                div { class: "setting-skeleton" }
+                            },
+                        }
+
+                        // Save current as new profile
+                        div { class: "settings-row-group",
+                            div { class: "setting-field",
+                                label { class: "setting-field-label", "Save Current as Profile" }
+                                div { class: "setting-input-group",
+                                    input {
+                                        class: "setting-input",
+                                        r#type: "text",
+                                        placeholder: "Profile name (e.g. 'OpenAI GPT-4')",
+                                        value: "{new_profile_name}",
+                                        oninput: move |e| new_profile_name.set(e.value()),
+                                    }
+                                    button {
+                                        class: "btn btn--primary btn--sm",
+                                        disabled: *profile_saving.read(),
+                                        onclick: save_as_profile,
+                                        IconSave { size: 14 }
+                                        if *profile_saving.read() {
+                                            "Saving…"
+                                        } else {
+                                            "Save Profile"
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1007,6 +1303,14 @@ pub fn Settings() -> Element {
                         confirm_text: Some("Delete".to_string()),
                         danger: Some(true),
                         on_confirm: do_delete_file,
+                    }
+                    ConfirmModal {
+                        show: show_confirm_delete_profile,
+                        title: "Delete Profile".to_string(),
+                        message: "Are you sure you want to delete this API profile?".to_string(),
+                        confirm_text: Some("Delete".to_string()),
+                        danger: Some(true),
+                        on_confirm: do_delete_profile,
                     }
                 }
             }

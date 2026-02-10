@@ -8,11 +8,12 @@ mod state;
 
 use dioxus::prelude::*;
 
+use components::notifications::{NotificationContainer, NotificationState};
 use components::sidebar::Sidebar;
 use pages::chat::Chat;
 use pages::documents::Documents;
 use pages::settings::Settings;
-use state::AppState;
+use state::{AppState, ChatState};
 
 /// Bundled stylesheet — processed by the manganis asset pipeline.
 const MAIN_CSS: Asset = asset!("/assets/main.css");
@@ -55,6 +56,24 @@ fn main() {
             loaded,
         });
 
+        // Notification system
+        use_context_provider(NotificationState::new);
+
+        // Chat state: persists across page navigations
+        let chat_messages = use_signal(Vec::<models::ChatMessage>::new);
+        let chat_sessions = use_signal(Vec::<models::ChatSession>::new);
+        let chat_active_id = use_signal(|| String::new());
+        let chat_uploaded_docs = use_signal(Vec::<models::UploadedDoc>::new);
+        let chat_loaded = use_signal(|| false);
+
+        use_context_provider(|| ChatState {
+            messages: chat_messages,
+            sessions: chat_sessions,
+            active_session_id: chat_active_id,
+            uploaded_docs: chat_uploaded_docs,
+            chat_loaded,
+        });
+
         // Load initial data once at startup
         use_resource(move || async move {
             if let Ok(status) = api::fetch_ollama_status().await {
@@ -82,6 +101,7 @@ fn main() {
             }
             document::Script { src: "https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js" }
             Router::<Route> {}
+            NotificationContainer {}
         }
     });
 }

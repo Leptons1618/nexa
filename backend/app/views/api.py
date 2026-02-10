@@ -16,17 +16,26 @@ from app.controllers.chat_controller import ChatController
 from app.controllers.health_controller import HealthController
 from app.controllers.ingest_controller import IngestController
 from app.dependencies import (
+    _cache,
     get_ingestion_service,
     get_llm_client,
     get_rag_pipeline,
     get_settings,
+    get_vector_store,
 )
 from app.models.schemas import (
     ApiKeysResponse,
     ApiKeysUpdateRequest,
+    ApiProfile,
+    ApiProfileListResponse,
+    ApiProfileSummary,
     ChatRequest,
     ChatResponse,
+    CloudModelEntry,
+    CloudModelsResponse,
     ConfigResponse,
+    ConnectionTestRequest,
+    ConnectionTestResponse,
     HealthResponse,
     IndexStatsResponse,
     IngestRequest,
@@ -455,18 +464,12 @@ def rebuild_index():
         deleted_files.append(str(meta_path))
 
     # Clear cached vector store so it gets recreated
-    from app.dependencies import _cache
     _cache.pop("store", None)
     _cache.pop("pipeline", None)
     _cache.pop("ingestion", None)
 
     logger.info("Index rebuilt (cleared files: %s)", deleted_files)
     return {"rebuilt": True, "deleted_files": deleted_files}
-
-
-# ── LLM / RAG Settings ──────────────────────────────────
-
-from app.dependencies import get_vector_store
 
 
 # ── API Keys ─────────────────────────────────────────────
@@ -526,6 +529,183 @@ def clear_index():
     _cache.pop("ingestion", None)
     logger.info("Index cleared (deleted: %s)", deleted_files)
     return {"cleared": True, "deleted_files": deleted_files}
+
+
+# ── Cloud Model Listing & Connection Test ────────────────
+
+
+@router.get("/cloud/models", response_model=CloudModelsResponse)
+def cloud_models():
+    """List models available from the configured cloud provider."""
+    settings = get_settings()
+    if settings.llm_provider != "cloud":
+        raise HTTPException(
+            status_code=400,
+            detail="Cloud endpoints require llm_provider='cloud'.",
+        )
+    from app.services.llm.cloud_client import CloudLLMClient
+
+    client = get_llm_client()
+    if not isinstance(client, CloudLLMClient):
+        raise HTTPException(status_code=500, detail="LLM client is not a CloudLLMClient")
+
+    raw = client.list_models()
+    entries = [CloudModelEntry(id=m["id"], owned_by=m.get("owned_by", "")) for m in raw]
+    return CloudModelsResponse(models=entries)
+
+
+@router.post("/cloud/test-connection", response_model=ConnectionTestResponse)
+def test_cloud_connection(req: ConnectionTestRequest = None):
+    """Test the cloud API connection with current or overridden credentials."""
+    settings = get_settings()
+    base_url = (req.base_url if req and req.base_url else settings.cloud_base_url).rstrip("/")
+    api_key = req.api_key if req and req.api_key else settings.cloud_api_key
+
+    if not api_key:
+        return ConnectionTestResponse(success=False, message="No API key configured.")
+
+    from app.services.llm.cloud_client import CloudLLMClient
+
+    temp_client = CloudLLMClient(
+        api_key=api_key,
+        base_url=base_url,
+        model=settings.cloud_model,
+    )
+    result = temp_client.test_connection()
+    return ConnectionTestResponse(**result)
+
+
+# ── API Profiles ─────────────────────────────────────────
+
+PROFILES_PATH = Path("data/api_profiles.json")
+
+
+def _load_profiles() -> dict:
+    """Load profiles dict from disk. Returns {profiles: [...], active_profile_id: str|None}"""
+    if PROFILES_PATH.exists():
+        try:
+            with open(PROFILES_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"profiles": [], "active_profile_id": None}
+
+
+def _save_profiles(data: dict) -> None:
+    PROFILES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(PROFILES_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+@router.get("/profiles", response_model=ApiProfileListResponse)
+def list_profiles():
+    """List all saved API profiles."""
+    data = _load_profiles()
+    summaries = []
+    for p in data["profiles"]:
+        summaries.append(ApiProfileSummary(
+            id=p["id"],
+            name=p["name"],
+            llm_provider=p.get("llm_provider", "cloud"),
+            cloud_api_key_set=bool(p.get("cloud_api_key")),
+            cloud_base_url=p.get("cloud_base_url", ""),
+            cloud_model=p.get("cloud_model", ""),
+        ))
+    return ApiProfileListResponse(
+        profiles=summaries,
+        active_profile_id=data.get("active_profile_id"),
+    )
+
+
+@router.post("/profiles", response_model=ApiProfileSummary)
+def create_profile(profile: ApiProfile):
+    """Create a new API profile."""
+    data = _load_profiles()
+    # Assign a new ID if blank
+    if not profile.id:
+        profile.id = uuid.uuid4().hex[:12]
+    # Prevent duplicate IDs
+    for p in data["profiles"]:
+        if p["id"] == profile.id:
+            raise HTTPException(status_code=409, detail="Profile ID already exists.")
+    data["profiles"].append(profile.model_dump())
+    _save_profiles(data)
+    logger.info("Created API profile: %s (%s)", profile.name, profile.id)
+    return ApiProfileSummary(
+        id=profile.id,
+        name=profile.name,
+        llm_provider=profile.llm_provider,
+        cloud_api_key_set=bool(profile.cloud_api_key),
+        cloud_base_url=profile.cloud_base_url,
+        cloud_model=profile.cloud_model,
+    )
+
+
+@router.put("/profiles/{profile_id}", response_model=ApiProfileSummary)
+def update_profile(profile_id: str, profile: ApiProfile):
+    """Update an existing API profile."""
+    data = _load_profiles()
+    for i, p in enumerate(data["profiles"]):
+        if p["id"] == profile_id:
+            profile.id = profile_id
+            d = profile.model_dump()
+            # Preserve existing key if not provided
+            if not d.get("cloud_api_key") and p.get("cloud_api_key"):
+                d["cloud_api_key"] = p["cloud_api_key"]
+            data["profiles"][i] = d
+            _save_profiles(data)
+            return ApiProfileSummary(
+                id=d["id"],
+                name=d["name"],
+                llm_provider=d.get("llm_provider", "cloud"),
+                cloud_api_key_set=bool(d.get("cloud_api_key")),
+                cloud_base_url=d.get("cloud_base_url", ""),
+                cloud_model=d.get("cloud_model", ""),
+            )
+    raise HTTPException(status_code=404, detail="Profile not found.")
+
+
+@router.delete("/profiles/{profile_id}")
+def delete_profile(profile_id: str):
+    """Delete an API profile."""
+    data = _load_profiles()
+    original_len = len(data["profiles"])
+    data["profiles"] = [p for p in data["profiles"] if p["id"] != profile_id]
+    if len(data["profiles"]) == original_len:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    if data.get("active_profile_id") == profile_id:
+        data["active_profile_id"] = None
+    _save_profiles(data)
+    logger.info("Deleted API profile: %s", profile_id)
+    return {"deleted": True}
+
+
+@router.post("/profiles/{profile_id}/activate")
+def activate_profile(profile_id: str):
+    """Activate a saved profile — applies its settings to the running config."""
+    data = _load_profiles()
+    target = None
+    for p in data["profiles"]:
+        if p["id"] == profile_id:
+            target = p
+            break
+    if target is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+
+    settings = get_settings()
+    settings.llm_provider = target.get("llm_provider", "cloud")
+    if target.get("cloud_api_key"):
+        settings.cloud_api_key = target["cloud_api_key"]
+    settings.cloud_base_url = target.get("cloud_base_url", settings.cloud_base_url)
+    settings.cloud_model = target.get("cloud_model", settings.cloud_model)
+
+    _cache.pop("llm", None)
+    _cache.pop("pipeline", None)
+
+    data["active_profile_id"] = profile_id
+    _save_profiles(data)
+    logger.info("Activated API profile: %s (%s)", target["name"], profile_id)
+    return {"activated": True, "profile_id": profile_id, "name": target["name"]}
 
 
 @router.get("/settings/llm", response_model=LLMSettingsResponse)

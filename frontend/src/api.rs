@@ -2,7 +2,10 @@
 
 use crate::models::{
     ApiKeysResponse, ApiKeysUpdateRequest,
-    ChatRequest, ChatResponse, ConfigResponse, HealthResponse, IngestRequest, IngestResponse,
+    ApiProfileCreate, ApiProfileListResponse, ApiProfileSummary,
+    ChatRequest, ChatResponse, CloudModelsResponse, ConfigResponse,
+    ConnectionTestRequest, ConnectionTestResponse,
+    HealthResponse, IngestRequest, IngestResponse,
     IndexStatsResponse, LLMSettingsResponse, LLMSettingsUpdateRequest,
     OllamaModelsResponse, OllamaStatusResponse, PromptsResponse, PromptsUpdateRequest,
     SessionDetailResponse, SessionListResponse,
@@ -671,6 +674,116 @@ pub async fn clear_index() -> Result<(), String> {
     let client = reqwest::Client::new();
     let resp = client
         .post(format!("{BASE}/index/clear"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    Ok(())
+}
+
+// ── Cloud Models & Connection Test ───────────────────────
+
+/// Fetch available models from the configured cloud provider.
+pub async fn fetch_cloud_models() -> Result<CloudModelsResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{BASE}/cloud/models"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<CloudModelsResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Test the cloud API connection.
+pub async fn test_cloud_connection(req: &ConnectionTestRequest) -> Result<ConnectionTestResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{BASE}/cloud/test-connection"))
+        .json(req)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<ConnectionTestResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+// ── API Profiles ─────────────────────────────────────────
+
+/// List all saved API profiles.
+pub async fn fetch_profiles() -> Result<ApiProfileListResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{BASE}/profiles"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<ApiProfileListResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Create a new API profile.
+pub async fn create_profile(profile: &ApiProfileCreate) -> Result<ApiProfileSummary, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{BASE}/profiles"))
+        .json(profile)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<ApiProfileSummary>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Delete an API profile.
+pub async fn delete_profile(profile_id: &str) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .delete(format!("{BASE}/profiles/{profile_id}"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    Ok(())
+}
+
+/// Activate a saved API profile.
+pub async fn activate_profile(profile_id: &str) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{BASE}/profiles/{profile_id}/activate"))
         .send()
         .await
         .map_err(|e| format!("Network error: {e}"))?;
