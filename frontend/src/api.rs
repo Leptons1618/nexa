@@ -1,6 +1,7 @@
 //! HTTP client for the Nexa Support backend API.
 
 use crate::models::{
+    ApiKeysResponse, ApiKeysUpdateRequest,
     ChatRequest, ChatResponse, ConfigResponse, HealthResponse, IngestRequest, IngestResponse,
     IndexStatsResponse, LLMSettingsResponse, LLMSettingsUpdateRequest,
     OllamaModelsResponse, OllamaStatusResponse, PromptsResponse, PromptsUpdateRequest,
@@ -624,4 +625,59 @@ pub async fn update_llm_settings(req: &LLMSettingsUpdateRequest) -> Result<LLMSe
     resp.json::<LLMSettingsResponse>()
         .await
         .map_err(|e| format!("Parse error: {e}"))
+}
+
+// ── API Keys ─────────────────────────────────────────────
+
+/// Fetch current API key configuration (key value is never returned).
+pub async fn fetch_api_keys() -> Result<ApiKeysResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{BASE}/settings/api-keys"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<ApiKeysResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Update API key configuration.
+pub async fn update_api_keys(req: &ApiKeysUpdateRequest) -> Result<ApiKeysResponse, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .put(format!("{BASE}/settings/api-keys"))
+        .json(req)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    resp.json::<ApiKeysResponse>()
+        .await
+        .map_err(|e| format!("Parse error: {e}"))
+}
+
+/// Clear the vector index completely.
+pub async fn clear_index() -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{BASE}/index/clear"))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Server error ({status}): {text}"));
+    }
+    Ok(())
 }

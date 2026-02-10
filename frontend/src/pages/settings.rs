@@ -1,14 +1,16 @@
-//! Settings page — comprehensive configuration management.
+//! Settings page — comprehensive configuration management with API keys,
+//! confirmation modals, and loading animations.
 
 use dioxus::prelude::*;
 
 use crate::api;
+use crate::components::confirm_modal::ConfirmModal;
 use crate::components::icons::{
     IconAlertCircle, IconCheckCircle, IconCpu, IconDatabase, IconEdit, IconFolder, IconHardDrive,
-    IconMessageCircle, IconRefreshCw, IconSave, IconSettings as IconSettingsIcon, IconSliders,
-    IconTrash,
+    IconKey, IconMessageCircle, IconRefreshCw, IconSave, IconSettings as IconSettingsIcon,
+    IconSliders, IconTrash,
 };
-use crate::models::{LLMSettingsUpdateRequest, PromptsUpdateRequest};
+use crate::models::{ApiKeysUpdateRequest, LLMSettingsUpdateRequest, PromptsUpdateRequest};
 
 #[component]
 pub fn Settings() -> Element {
@@ -22,6 +24,7 @@ pub fn Settings() -> Element {
     let llm_settings_res = use_resource(|| async { api::fetch_llm_settings().await });
     let sessions_res = use_resource(|| async { api::fetch_sessions().await });
     let config_res = use_resource(|| async { api::fetch_config().await });
+    let api_keys_res = use_resource(|| async { api::fetch_api_keys().await });
 
     // ── Editable state ──────────────────────────────────
     let mut system_prompt = use_signal(|| String::new());
@@ -46,6 +49,22 @@ pub fn Settings() -> Element {
 
     let mut action_msg = use_signal(|| Option::<(bool, String)>::None);
 
+    // API Keys state
+    let mut api_provider = use_signal(|| String::from("ollama"));
+    let mut api_key_input = use_signal(|| String::new());
+    let mut api_base_url = use_signal(|| String::from("https://api.openai.com/v1"));
+    let mut api_cloud_model = use_signal(|| String::from("gpt-4"));
+    let mut api_keys_loaded = use_signal(|| false);
+    let mut api_keys_saving = use_signal(|| false);
+    let mut api_keys_msg = use_signal(|| Option::<(bool, String)>::None);
+
+    // Confirmation modal state
+    let mut show_confirm_clear_history = use_signal(|| false);
+    let mut show_confirm_rebuild = use_signal(|| false);
+    let mut show_confirm_clear_idx = use_signal(|| false);
+    let mut show_confirm_delete_file = use_signal(|| false);
+    let mut pending_delete_filename = use_signal(|| String::new());
+
     // ── Hydrate editable fields from API data ───────────
     if !*prompts_loaded.read() {
         if let Some(Ok(p)) = &*prompts_res.read() {
@@ -64,6 +83,14 @@ pub fn Settings() -> Element {
             top_k.set(format!("{}", s.top_k));
             similarity_threshold.set(format!("{}", s.similarity_threshold));
             llm_loaded.set(true);
+        }
+    }
+    if !*api_keys_loaded.read() {
+        if let Some(Ok(k)) = &*api_keys_res.read() {
+            api_provider.set(k.llm_provider.clone());
+            api_base_url.set(k.cloud_base_url.clone());
+            api_cloud_model.set(k.cloud_model.clone());
+            api_keys_loaded.set(true);
         }
     }
 
@@ -134,7 +161,33 @@ pub fn Settings() -> Element {
         });
     };
 
-    let clear_history = move |_| {
+    let save_api_keys = move |_| {
+        api_keys_saving.set(true);
+        api_keys_msg.set(None);
+        let provider = api_provider.read().clone();
+        let key = api_key_input.read().clone();
+        let url = api_base_url.read().clone();
+        let model = api_cloud_model.read().clone();
+        spawn(async move {
+            let req = ApiKeysUpdateRequest {
+                llm_provider: Some(provider),
+                cloud_api_key: if key.is_empty() { None } else { Some(key) },
+                cloud_base_url: Some(url),
+                cloud_model: Some(model),
+            };
+            match api::update_api_keys(&req).await {
+                Ok(_) => {
+                    api_keys_msg.set(Some((true, "API configuration saved.".into())));
+                    api_key_input.set(String::new());
+                }
+                Err(e) => api_keys_msg.set(Some((false, format!("Failed: {e}")))),
+            }
+            api_keys_saving.set(false);
+        });
+    };
+
+    // Confirmation-guarded actions
+    let do_clear_history = move |_: ()| {
         action_msg.set(None);
         spawn(async move {
             match api::clear_all_sessions().await {
@@ -146,14 +199,14 @@ pub fn Settings() -> Element {
         });
     };
 
-    let rebuild_idx = move |_| {
+    let do_rebuild_idx = move |_: ()| {
         action_msg.set(None);
         spawn(async move {
             match api::rebuild_index().await {
                 Ok(_) => {
                     action_msg.set(Some((
                         true,
-                        "Index cleared. Re-ingest documents to rebuild.".into(),
+                        "Index rebuilt. Re-ingest documents to populate.".into(),
                     )));
                     index_res.restart();
                 }
@@ -162,8 +215,25 @@ pub fn Settings() -> Element {
         });
     };
 
+    let do_clear_index = move |_: ()| {
+        action_msg.set(None);
+        spawn(async move {
+            match api::clear_index().await {
+                Ok(_) => {
+                    action_msg.set(Some((true, "Vector index cleared.".into())));
+                    index_res.restart();
+                }
+                Err(e) => action_msg.set(Some((false, format!("Failed: {e}")))),
+            }
+        });
+    };
+
     let uploads_state = uploads_res.read().clone();
-    let delete_upload = move |name: String| {
+    let do_delete_file = move |_: ()| {
+        let name = pending_delete_filename.read().clone();
+        if name.is_empty() {
+            return;
+        }
         let mut uploads_res = uploads_res.clone();
         let mut action_msg = action_msg.clone();
         spawn(async move {
@@ -189,7 +259,10 @@ pub fn Settings() -> Element {
                             button {
                                 class: "btn-icon btn-icon--danger",
                                 title: "Delete file",
-                                onclick: move |_| delete_upload(file.name.clone()),
+                                onclick: move |_| {
+                                    pending_delete_filename.set(file.name.clone());
+                                    show_confirm_delete_file.set(true);
+                                },
                                 IconTrash { size: 14 }
                             }
                         }
@@ -249,7 +322,10 @@ pub fn Settings() -> Element {
                             }
                         },
                         None => rsx! {
-                            span { class: "status-pill status-pill--loading", "Checking..." }
+                            span { class: "status-pill status-pill--loading",
+                                span { class: "spinner" }
+                                "Checking..."
+                            }
                         },
                     }
                 }
@@ -276,6 +352,109 @@ pub fn Settings() -> Element {
             }
 
             div { class: "settings-sections",
+
+                // ══════════════════════════════════════════
+                // 0. Cloud API & Provider Configuration
+                // ══════════════════════════════════════════
+                div { class: "settings-section",
+                    div { class: "settings-section-header",
+                        div { class: "settings-section-icon settings-section-icon--purple",
+                            IconKey { size: 20 }
+                        }
+                        div {
+                            h2 { class: "settings-section-title", "API Keys & Provider" }
+                            p { class: "settings-section-desc",
+                                "Configure the LLM provider and cloud API credentials."
+                            }
+                        }
+                    }
+                    div { class: "settings-section-body",
+                        div { class: "setting-field",
+                            label { class: "setting-field-label", "LLM Provider" }
+                            select {
+                                class: "setting-select",
+                                value: "{api_provider}",
+                                onchange: move |e: Event<FormData>| api_provider.set(e.value()),
+                                option { value: "ollama", "Ollama (Local)" }
+                                option { value: "cloud", "Cloud API (OpenAI-compatible)" }
+                            }
+                        }
+
+                        {
+                            let is_cloud = api_provider.read().as_str() == "cloud";
+                            let api_key_set = api_keys_res
+                                .read()
+                                .as_ref()
+                                .and_then(|r| r.as_ref().ok())
+                                .map(|k| k.cloud_api_key_set)
+                                .unwrap_or(false);
+                            let placeholder_text = if api_key_set {
+                                "Key is set — enter new value to replace"
+                            } else {
+                                "Enter your API key"
+                            };
+                            if is_cloud {
+                                rsx! {
+                                    div { class: "setting-field",
+                                        label { class: "setting-field-label", "API Key" }
+                                        input {
+                                            class: "setting-input",
+                                            r#type: "password",
+                                            placeholder: "{placeholder_text}",
+                                            value: "{api_key_input}",
+                                            oninput: move |e| api_key_input.set(e.value()),
+                                        }
+                                        p { class: "setting-field-hint", "Stored in server memory only. Never sent to the frontend." }
+                                    }
+                                    div { class: "settings-row-group",
+                                        div { class: "setting-field",
+                                            label { class: "setting-field-label", "Base URL" }
+                                            input {
+                                                class: "setting-input",
+                                                r#type: "text",
+                                                placeholder: "https://api.openai.com/v1",
+                                                value: "{api_base_url}",
+                                                oninput: move |e| api_base_url.set(e.value()),
+                                            }
+                                            p { class: "setting-field-hint", "OpenAI, Groq, Together, or any compatible endpoint." }
+                                        }
+                                        div { class: "setting-field",
+                                            label { class: "setting-field-label", "Cloud Model" }
+                                            input {
+                                                class: "setting-input",
+                                                r#type: "text",
+                                                placeholder: "gpt-4",
+                                                value: "{api_cloud_model}",
+                                                oninput: move |e| api_cloud_model.set(e.value()),
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                rsx! {}
+                            }
+                        }
+
+                        div { class: "settings-section-actions",
+                            button {
+                                class: "btn btn--primary btn--sm",
+                                disabled: *api_keys_saving.read(),
+                                onclick: save_api_keys,
+                                IconSave { size: 14 }
+                                if *api_keys_saving.read() {
+                                    "Saving…"
+                                } else {
+                                    "Save Provider Config"
+                                }
+                            }
+                            if let Some((ok, msg)) = api_keys_msg.read().as_ref() {
+                                span { class: if *ok { "setting-inline-msg setting-inline-msg--ok" } else { "setting-inline-msg setting-inline-msg--error" },
+                                    "{msg}"
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // ══════════════════════════════════════════
                 // 1. LLM Configuration
@@ -351,7 +530,10 @@ pub fn Settings() -> Element {
                                             }
                                         }
                                         if *switching_model.read() {
-                                            span { class: "setting-field-hint setting-field-hint--warn", "Switching..." }
+                                            span { class: "setting-field-hint setting-field-hint--warn",
+                                                span { class: "spinner" }
+                                                "Switching..."
+                                            }
                                         }
                                     }
                                     if let Some((ok, msg)) = model_msg.read().as_ref() {
@@ -642,14 +824,14 @@ pub fn Settings() -> Element {
                                             }
                                         }
                                         if s.sessions.len() > 10 {
-                                            p { class: "setting-field-hint", "... and {s.sessions.len() - 10} more sessions." }
+                                            p { class: "setting-field-hint", "… and {s.sessions.len() - 10} more sessions." }
                                         }
                                     }
                                 }
                                 div { class: "settings-section-actions",
                                     button {
                                         class: "btn btn--ghost btn--sm btn--danger-text",
-                                        onclick: clear_history,
+                                        onclick: move |_| show_confirm_clear_history.set(true),
                                         IconTrash { size: 14 }
                                         "Clear All History"
                                     }
@@ -712,7 +894,13 @@ pub fn Settings() -> Element {
                                 div { class: "settings-section-actions",
                                     button {
                                         class: "btn btn--ghost btn--sm btn--danger-text",
-                                        onclick: rebuild_idx,
+                                        onclick: move |_| show_confirm_clear_idx.set(true),
+                                        IconTrash { size: 14 }
+                                        "Clear Index"
+                                    }
+                                    button {
+                                        class: "btn btn--ghost btn--sm",
+                                        onclick: move |_| show_confirm_rebuild.set(true),
                                         IconRefreshCw { size: 14 }
                                         "Rebuild Index"
                                     }
@@ -771,6 +959,54 @@ pub fn Settings() -> Element {
                                 div { class: "setting-skeleton" }
                             },
                         }
+                    }
+                }
+            }
+
+            // ── Confirmation Modals ─────────────────────
+            {
+                let delete_msg = {
+                    let name = pending_delete_filename.read().clone();
+                    if name.is_empty() {
+                        "Are you sure you want to delete this file?".to_string()
+                    } else {
+                        format!("Delete '{name}'? This action cannot be undone.")
+                    }
+                };
+                rsx! {
+                    ConfirmModal {
+                        show: show_confirm_clear_history,
+                        title: "Clear Chat History".to_string(),
+                        message: "This will permanently delete all chat sessions. This action cannot be undone."
+                            .to_string(),
+                        confirm_text: Some("Clear All".to_string()),
+                        danger: Some(true),
+                        on_confirm: do_clear_history,
+                    }
+                    ConfirmModal {
+                        show: show_confirm_rebuild,
+                        title: "Rebuild Index".to_string(),
+                        message: "This will delete the current vector index. You will need to re-ingest documents afterward."
+                            .to_string(),
+                        confirm_text: Some("Rebuild".to_string()),
+                        danger: Some(true),
+                        on_confirm: do_rebuild_idx,
+                    }
+                    ConfirmModal {
+                        show: show_confirm_clear_idx,
+                        title: "Clear Vector Index".to_string(),
+                        message: "This will permanently delete all indexed vectors and metadata.".to_string(),
+                        confirm_text: Some("Clear Index".to_string()),
+                        danger: Some(true),
+                        on_confirm: do_clear_index,
+                    }
+                    ConfirmModal {
+                        show: show_confirm_delete_file,
+                        title: "Delete File".to_string(),
+                        message: delete_msg,
+                        confirm_text: Some("Delete".to_string()),
+                        danger: Some(true),
+                        on_confirm: do_delete_file,
                     }
                 }
             }

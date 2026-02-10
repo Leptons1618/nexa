@@ -99,6 +99,8 @@ fn trigger_rendering() {
 /// - LaTeX blocks ($$...$$), Inline LaTeX ($...$)
 /// - Line breaks (trailing `\` or double space)
 /// - Superscript (^...^)
+/// - Highlight/Mark (==...==)
+/// - Auto-linked bare URLs (http/https)
 /// - HTML passthrough
 fn render_markdown_to_html(input: &str) -> String {
     let mut result = String::with_capacity(input.len() * 2);
@@ -667,6 +669,16 @@ fn process_inline(text: &str) -> String {
             }
         }
 
+        // Highlight ==...==
+        if i + 1 < len && chars[i] == '=' && chars[i + 1] == '=' {
+            if let Some(end) = find_double_closing(&chars, i + 2, '=') {
+                let inner: String = chars[i + 2..end].iter().collect();
+                result.push_str(&format!("<mark>{}</mark>", process_inline(&inner)));
+                i = end + 2;
+                continue;
+            }
+        }
+
         // Superscript ^...^
         if chars[i] == '^' && i + 1 < len && chars[i + 1] != ' ' {
             if let Some(end) = find_closing(&chars, i + 1, '^') {
@@ -676,6 +688,24 @@ fn process_inline(text: &str) -> String {
                     i = end + 1;
                     continue;
                 }
+            }
+        }
+
+        // Auto-link bare URLs
+        if i + 7 < len && chars[i] == 'h' && chars[i + 1] == 't' && chars[i + 2] == 't' && chars[i + 3] == 'p' {
+            let rest: String = chars[i..].iter().collect();
+            if rest.starts_with("https://") || rest.starts_with("http://") {
+                let url_end = rest.find(|c: char| c.is_whitespace() || c == ')' || c == ']' || c == '>' || c == '"' || c == '\'').unwrap_or(rest.len());
+                let url = &rest[..url_end];
+                // Trim trailing punctuation that's unlikely part of a URL
+                let url = url.trim_end_matches(|c: char| c == '.' || c == ',' || c == ';' || c == '!' || c == '?');
+                result.push_str(&format!(
+                    "<a href=\"{}\" target=\"_blank\" rel=\"noopener\">{}</a>",
+                    escape_html_attr(url),
+                    escape_html(url)
+                ));
+                i += url.len();
+                continue;
             }
         }
 

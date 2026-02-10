@@ -1,6 +1,7 @@
 pub mod chat_bubble;
 pub mod chat_history;
 pub mod chat_input;
+pub mod confirm_modal;
 pub mod doc_context;
 pub mod header;
 pub mod icons;

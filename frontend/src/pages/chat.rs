@@ -8,6 +8,7 @@ use crate::api::StreamEvent;
 use crate::components::chat_bubble::ChatBubble;
 use crate::components::chat_history::ChatHistory;
 use crate::components::chat_input::ChatInput;
+use crate::components::confirm_modal::ConfirmModal;
 use crate::components::icons::{
     IconChevronRight, IconFileCode, IconFileText, IconMessageSquare,
     IconSettings, IconUpload, IconX,
@@ -15,6 +16,7 @@ use crate::components::icons::{
 use crate::components::model_selector::ModelSelector;
 use crate::components::upload_modal::UploadModal;
 use crate::models::{ChatMessage, ChatSession, Role, UploadedDoc};
+use crate::state::AppState;
 use crate::Route;
 
 /// Generate a simple unique id using a static counter.
@@ -63,8 +65,9 @@ pub fn Chat() -> Element {
     let mut messages = use_signal(Vec::<ChatMessage>::new);
     let mut loading = use_signal(|| false);
 
-    // Model selector
-    let selected_model = use_signal(|| String::new());
+    // Model selector — use global state
+    let state = use_context::<AppState>();
+    let selected_model = state.selected_model;
 
     // Upload modal
     let show_upload = use_signal(|| false);
@@ -82,18 +85,9 @@ pub fn Chat() -> Element {
     // Documents flyout state (above input)
     let mut show_docs_panel = use_signal(|| false);
 
-    // Load initial model from backend
-    {
-        let selected_model = selected_model.clone();
-        use_resource(move || {
-            let mut selected_model = selected_model.clone();
-            async move {
-                if let Ok(status) = api::fetch_ollama_status().await {
-                    selected_model.set(status.model);
-                }
-            }
-        });
-    }
+    // Delete session confirmation
+    let mut show_confirm_delete_session = use_signal(|| false);
+    let mut pending_delete_session_id = use_signal(|| String::new());
 
     // Load sessions from server on mount
     {
@@ -373,6 +367,15 @@ pub fn Chat() -> Element {
     };
 
     let on_delete_session = move |id: String| {
+        pending_delete_session_id.set(id);
+        show_confirm_delete_session.set(true);
+    };
+
+    let do_delete_session = move |_: ()| {
+        let id = pending_delete_session_id.read().clone();
+        if id.is_empty() {
+            return;
+        }
         let mut sess = sessions.write();
         sess.retain(|s| s.id != id);
 
@@ -531,11 +534,6 @@ pub fn Chat() -> Element {
                 }
 
                 if !is_collapsed {
-                    div { class: "sidebar-section",
-                        div { class: "sidebar-section-title", "Model" }
-                        ModelSelector { selected_model }
-                    }
-
                     div { class: "sidebar-section sidebar-section--history",
                         ChatHistory {
                             sessions,
@@ -556,13 +554,11 @@ pub fn Chat() -> Element {
 
             // ── Main Area ────────────────────────────────────
             div { class: "main-area",
-                // Minimal header bar
+                // Topbar with model selector always visible
                 div { class: "chat-header",
                     h1 { class: "chat-header-title", "Chat" }
-                    if is_collapsed {
-                        div { class: "chat-header-model",
-                            ModelSelector { selected_model }
-                        }
+                    div { class: "chat-header-model",
+                        ModelSelector { selected_model }
                     }
                 }
 
@@ -625,6 +621,16 @@ pub fn Chat() -> Element {
                 }
 
                 UploadModal { show: show_upload, uploaded_docs }
+            }
+
+            // Delete session confirmation modal
+            ConfirmModal {
+                show: show_confirm_delete_session,
+                title: "Delete Conversation".to_string(),
+                message: "This conversation will be permanently deleted. This cannot be undone.".to_string(),
+                confirm_text: Some("Delete".to_string()),
+                danger: Some(true),
+                on_confirm: do_delete_session,
             }
         }
     }

@@ -195,3 +195,20 @@ class LLMSettingsUpdateRequest(BaseModel):
     chunk_overlap: Optional[int] = None
     top_k: Optional[int] = None
     similarity_threshold: Optional[float] = None
+
+
+# ── API Keys ────────────────────────────────────────────
+
+
+class ApiKeysResponse(BaseModel):
+    llm_provider: str
+    cloud_api_key_set: bool
+    cloud_base_url: str
+    cloud_model: str
+
+
+class ApiKeysUpdateRequest(BaseModel):
+    llm_provider: Optional[str] = None
+    cloud_api_key: Optional[str] = None
+    cloud_base_url: Optional[str] = None
+    cloud_model: Optional[str] = None

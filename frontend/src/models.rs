@@ -263,3 +263,27 @@ pub struct LLMSettingsUpdateRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub similarity_threshold: Option<f64>,
 }
+
+// ── API Keys ─────────────────────────────────────────────
+
+/// API keys configuration (GET response — key is never exposed).
+#[derive(Clone, Debug, Deserialize)]
+pub struct ApiKeysResponse {
+    pub llm_provider: String,
+    pub cloud_api_key_set: bool,
+    pub cloud_base_url: String,
+    pub cloud_model: String,
+}
+
+/// API keys update request.
+#[derive(Clone, Debug, Serialize, Default)]
+pub struct ApiKeysUpdateRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_api_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_model: Option<String>,
+}

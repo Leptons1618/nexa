@@ -1337,6 +1337,24 @@ html, body {
 .alert--success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
 .alert--error   { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
 
+/* ── Spinner ──────────────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.spinner--sm { width: 12px; height: 12px; border-width: 1.5px; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ── Loading dots ─────────────────────────────────── */
 .typing-indicator { display: flex; gap: 5px; padding: 4px 0; }
 .typing-indicator span {
@@ -1348,6 +1366,58 @@ html, body {
 .typing-indicator span:nth-child(2) { animation-delay: .2s; }
 .typing-indicator span:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%,80%,100%{opacity:.25} 40%{opacity:1} }
+
+/* ── Confirmation Modal ────────────────────────────── */
+.modal--confirm {
+  width: 420px;
+}
+
+.confirm-icon-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.confirm-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.confirm-icon--danger { background: #fef2f2; color: #ef4444; }
+.confirm-icon--warn   { background: #fffbeb; color: #f59e0b; }
+
+.confirm-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--clr-txt);
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.confirm-message {
+  font-size: 13px;
+  color: var(--clr-txt-2);
+  text-align: center;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.btn--danger {
+  background: #ef4444;
+  color: #fff;
+}
+.btn--danger:hover:not(:disabled) {
+  background: #dc2626;
+}
 
 /* ── Modal ────────────────────────────────────────── */
 .modal-backdrop {
@@ -1663,6 +1733,26 @@ html, body {
   font-weight: 400;
 }
 
+/* ── Highlight/Mark ───────────────────────────────── */
+.rich-content mark {
+  background: #fef08a;
+  color: var(--clr-txt);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* ── Task List ────────────────────────────────────── */
+.rich-content .task-list { list-style: none; padding-left: 4px; }
+.rich-content .task-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0;
+}
+.rich-content .task-checkbox { font-size: 16px; line-height: 1; flex-shrink: 0; }
+.rich-content .task-checkbox--checked { color: var(--clr-success); }
+.rich-content .task-list-item--checked { opacity: .7; text-decoration: line-through; }
+
 /* ── KaTeX (LaTeX) ───────────────────────────────── */
 .katex-block {
   margin: 14px 0;
@@ -1694,6 +1784,34 @@ html, body {
 }
 
 .rich-content--streaming p:last-child { display: inline; }
+
+/* ── Page Animations ──────────────────────────────── */
+.settings-page,
+.chat-container {
+  animation: pageFadeIn .3s ease;
+}
+
+@keyframes pageFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.settings-section {
+  animation: sectionSlideIn .35s ease both;
+}
+.settings-section:nth-child(1) { animation-delay: 0ms; }
+.settings-section:nth-child(2) { animation-delay: 40ms; }
+.settings-section:nth-child(3) { animation-delay: 80ms; }
+.settings-section:nth-child(4) { animation-delay: 120ms; }
+.settings-section:nth-child(5) { animation-delay: 160ms; }
+.settings-section:nth-child(6) { animation-delay: 200ms; }
+.settings-section:nth-child(7) { animation-delay: 240ms; }
+.settings-section:nth-child(8) { animation-delay: 280ms; }
+
+@keyframes sectionSlideIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 /* ── Animations ───────────────────────────────────── */
 @keyframes fadeIn {

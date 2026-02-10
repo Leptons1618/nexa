@@ -22,6 +22,8 @@ from app.dependencies import (
     get_settings,
 )
 from app.models.schemas import (
+    ApiKeysResponse,
+    ApiKeysUpdateRequest,
     ChatRequest,
     ChatResponse,
     ConfigResponse,
@@ -465,6 +467,65 @@ def rebuild_index():
 # ── LLM / RAG Settings ──────────────────────────────────
 
 from app.dependencies import get_vector_store
+
+
+# ── API Keys ─────────────────────────────────────────────
+
+
+@router.get("/settings/api-keys", response_model=ApiKeysResponse)
+def get_api_keys():
+    """Read current cloud API key configuration (key is never exposed)."""
+    settings = get_settings()
+    return ApiKeysResponse(
+        llm_provider=settings.llm_provider,
+        cloud_api_key_set=bool(settings.cloud_api_key),
+        cloud_base_url=settings.cloud_base_url,
+        cloud_model=settings.cloud_model,
+    )
+
+
+@router.put("/settings/api-keys", response_model=ApiKeysResponse)
+def update_api_keys(req: ApiKeysUpdateRequest):
+    """Update cloud API keys and provider at runtime."""
+    settings = get_settings()
+    changed = False
+    if req.llm_provider is not None and req.llm_provider != settings.llm_provider:
+        settings.llm_provider = req.llm_provider
+        changed = True
+    if req.cloud_api_key is not None:
+        settings.cloud_api_key = req.cloud_api_key
+        changed = True
+    if req.cloud_base_url is not None:
+        settings.cloud_base_url = req.cloud_base_url
+        changed = True
+    if req.cloud_model is not None:
+        settings.cloud_model = req.cloud_model
+        changed = True
+    if changed:
+        _cache.pop("llm", None)
+        _cache.pop("pipeline", None)
+        logger.info("Updated API keys: provider=%s", settings.llm_provider)
+    return get_api_keys()
+
+
+@router.post("/index/clear")
+def clear_index():
+    """Completely clear the vector index and metadata files."""
+    settings = get_settings()
+    idx_path = Path(settings.index_path)
+    meta_path = Path(settings.metadata_path)
+    deleted_files = []
+    if idx_path.exists():
+        idx_path.unlink()
+        deleted_files.append(str(idx_path))
+    if meta_path.exists():
+        meta_path.unlink()
+        deleted_files.append(str(meta_path))
+    _cache.pop("store", None)
+    _cache.pop("pipeline", None)
+    _cache.pop("ingestion", None)
+    logger.info("Index cleared (deleted: %s)", deleted_files)
+    return {"cleared": True, "deleted_files": deleted_files}
 
 
 @router.get("/settings/llm", response_model=LLMSettingsResponse)
